@@ -5,7 +5,7 @@ import { prisma } from "./db";
 import type { ClientReport } from "./client-report";
 import { aiContextForReport, contextInput } from "./ai/context";
 import { AI_MODEL, aiConfigured, draftExecutiveSummary } from "./ai/assistant";
-import { autoExecutiveSummary, type ExecutiveSummaryContent } from "@/lib/exec-summary";
+import { autoExecutiveSummary, fromLegacySummary, MAX_STEPS, type ExecutiveSummaryContent } from "@/lib/exec-summary";
 import { diffDays } from "@/lib/pacing/dates";
 
 // The executive summary at the top of a report, for whatever date range is
@@ -16,8 +16,10 @@ import { diffDays } from "@/lib/pacing/dates";
 const KIND = "exec_summary";
 const TTL_MS = 24 * 3600_000;
 export type ExecSummary = ExecutiveSummaryContent & { source: "ai" | "auto" };
-/** Bumped when the stored shape changes, so older cached summaries are rewritten. */
-const VERSION = 3;
+/** Bumped when the stored shape changes, so older cached summaries are rewritten. 4 = the three questions. */
+const VERSION = 4;
+/** The previous format (overview, what's working…): still shown to clients when it was approved. */
+const LEGACY_VERSION = 3;
 
 /**
  * Comparison period, plus the account filter when the report is limited to
@@ -35,13 +37,18 @@ export const wantsAiSummary = (rep: ClientReport) => rep.template.executiveAi &&
 
 const strings = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => typeof x === "string");
 
-type StoredContent = { v?: unknown; compare?: unknown; approvedAt?: unknown; summary?: Partial<Record<keyof ExecutiveSummaryContent, unknown>> };
+type StoredContent = { v?: unknown; compare?: unknown; approvedAt?: unknown; summary?: Record<string, unknown> };
 
-function parseStored(c: StoredContent, rep: ClientReport): ExecutiveSummaryContent | null {
+/** A saved summary in the current format; with `legacy`, also an earlier-format one, read as the three questions. */
+function parseStored(c: StoredContent, rep: ClientReport, opts: { legacy?: boolean } = {}): ExecutiveSummaryContent | null {
   const s = c.summary;
-  if (c.v !== VERSION || c.compare !== compareKey(rep) || !s) return null;
-  if (typeof s.overview === "string" && strings(s.working) && strings(s.notWorking) && strings(s.recommendations)) {
-    return { overview: s.overview, working: s.working, notWorking: s.notWorking, recommendations: s.recommendations, nextSteps: strings(s.nextSteps) ? s.nextSteps : [] };
+  if (c.compare !== compareKey(rep) || !s) return null;
+  const steps = (v: unknown) => (strings(v) ? v.slice(0, MAX_STEPS) : []);
+  if (c.v === VERSION && typeof s.takeaway === "string" && typeof s.happened === "string" && typeof s.meaning === "string") {
+    return { takeaway: s.takeaway, happened: s.happened, meaning: s.meaning, recommendations: steps(s.recommendations), nextSteps: steps(s.nextSteps) };
+  }
+  if (opts.legacy && c.v === LEGACY_VERSION && typeof s.overview === "string" && strings(s.working) && strings(s.notWorking) && strings(s.recommendations)) {
+    return fromLegacySummary({ overview: s.overview, working: s.working, notWorking: s.notWorking, recommendations: s.recommendations, nextSteps: strings(s.nextSteps) ? s.nextSteps : [] });
   }
   return null;
 }
@@ -79,7 +86,8 @@ export async function clientFacingSummary(rep: ClientReport): Promise<ExecSummar
     for (const r of rows) {
       const c = r.content as StoredContent;
       if (typeof c.approvedAt !== "string") continue;
-      const content = parseStored(c, rep);
+      // An approved summary in the earlier format keeps reaching clients until a new one is approved.
+      const content = parseStored(c, rep, { legacy: true });
       if (content) return { ...content, source: "ai" };
     }
   } catch (e) {

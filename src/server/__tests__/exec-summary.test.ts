@@ -17,7 +17,7 @@ let clientId = "";
 let agencyId = "";
 let calls = 0;
 let fail = false;
-const AI_REPLY = { overview: "AI wrote this.", working: ["- Search did well."], notWorking: ["Display spent with no leads."], recommendations: ["1. Move budget to Search."], nextSteps: ["- We'll move budget to Search."] };
+const AI_REPLY = { takeaway: "AI wrote this.", happened: "Leads rose.", meaning: "Search works.", recommendations: ["1. Move budget to Search.", "2. b", "3. c", "4. d"], nextSteps: ["- We'll move budget to Search."] };
 
 describe.skipIf(!hasDb)("executive summary (database)", () => {
   beforeAll(async () => {
@@ -54,8 +54,9 @@ describe.skipIf(!hasDb)("executive summary (database)", () => {
     expect(calls).toBe(0);
     const [a, b] = await Promise.all([getExecutiveSummary(rep, { generate: true }), getExecutiveSummary(rep, { generate: true })]);
     // List markers the model adds are stripped.
-    expect(a).toEqual({ overview: "AI wrote this.", working: ["Search did well."], notWorking: ["Display spent with no leads."], recommendations: ["Move budget to Search."], nextSteps: ["We'll move budget to Search."], source: "ai" });
-    expect(b.overview).toBe("AI wrote this.");
+    // List markers the model adds are stripped, and there are never more than three steps.
+    expect(a).toEqual({ takeaway: "AI wrote this.", happened: "Leads rose.", meaning: "Search works.", recommendations: ["Move budget to Search.", "b", "c"], nextSteps: ["We'll move budget to Search."], source: "ai" });
+    expect(b.takeaway).toBe("AI wrote this.");
     expect(calls).toBe(1); // concurrent viewers share one request
     expect(await getExecutiveSummary(rep, { generate: true })).toMatchObject({ ...a, approved: false }); // served from the cache
     expect(calls).toBe(1);
@@ -79,7 +80,7 @@ describe.skipIf(!hasDb)("executive summary (database)", () => {
     expect(saved).toMatchObject({ source: "ai", approved: false });
     const user = await prisma.user.create({ data: { agencyId, email: `approver-${Date.now()}@example.test`, name: "Approver", role: "AGENCY_ADMIN", passwordHash: "x" } });
     expect(await setSummaryApproval(clientId, saved.insightId!, user.id, true)).toBe(true);
-    expect(await clientFacingSummary(rep)).toMatchObject({ source: "ai", overview: "AI wrote this." });
+    expect(await clientFacingSummary(rep)).toMatchObject({ source: "ai", takeaway: "AI wrote this." });
     // Still approved after the day-long cache has expired (a past month keeps its approved wording).
     expect(await getExecutiveSummary(rep, { generate: false })).toMatchObject({ approved: true });
     // Withdrawn: back to the automatic summary.
@@ -94,7 +95,7 @@ describe.skipIf(!hasDb)("executive summary (database)", () => {
     const rep = await loadClientReport(clientId, { range: "last_30" });
     const s = await getExecutiveSummary(rep, { generate: true });
     expect(s.source).toBe("auto");
-    expect(s.overview).toContain("Exec Client's ads were shown");
+    expect(s.happened).toContain("Exec Client's ads were shown");
     expect(s.recommendations.length).toBeGreaterThan(0);
     fail = false;
     await saveTemplate(agencyId, clientId, { ...DEFAULT_TEMPLATE, executiveAi: false });

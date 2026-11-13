@@ -53,35 +53,37 @@ describe("automatic executive summary", () => {
   });
 });
 
-describe("email-ready summary", () => {
-  const s = { overview: "Para one.\n\nPara <two> & more.", working: ["Search did well."], notWorking: [], recommendations: ["Move budget.", "Fix tracking."] };
+describe("three-question summary", () => {
+  const s = { takeaway: "You got 42 leads, 8 more than last month.", happened: "Spend was $5,750 <about the same> & leads rose.", meaning: "Leads are getting cheaper.", recommendations: ["Move budget.", "Fix tracking.", "Test a new ad.", "Fourth."], nextSteps: ["We'll move budget."] };
 
-  it("formats plain text with headings, bullets and numbers, skipping empty sections", async () => {
-    const { summaryAsText } = await import("../exec-summary");
-    expect(summaryAsText(s, "ABC: summary")).toBe("ABC: summary\n\nPerformance overview\nPara one.\n\nPara <two> & more.\n\nWhat the data tells us\n• Search did well.\n\nRecommended next steps\n1. Move budget.\n2. Fix tracking.");
-  });
-
-  it("swaps recommendations for what we're doing next in client-facing copies, or leaves them out", async () => {
-    const { summaryAsText } = await import("../exec-summary");
-    expect(summaryAsText({ ...s, nextSteps: ["We'll move budget."] }, "ABC: summary", { clientFacing: true })).toBe("ABC: summary\n\nPerformance overview\nPara one.\n\nPara <two> & more.\n\nWhat the data tells us\n• Search did well.\n\nWhat we're doing next\n• We'll move budget.");
-    expect(summaryAsText({ ...s, nextSteps: [] }, "ABC: summary", { clientFacing: true })).not.toMatch(/Recommended|doing next/);
-  });
-
-  it("outlines the summary as what the data tells us (good and bad interleaved) and next steps", async () => {
+  it("outlines What happened?, What does this mean? and at most three next steps, without the takeaway", async () => {
     const { summaryOutline } = await import("../exec-summary");
-    const out = summaryOutline({ ...s, working: ["A", "B"], notWorking: ["X"] }, false);
-    expect(out.map((x) => x.title)).toEqual(["What the data tells us", "Recommended next steps"]);
-    expect(out[0].items).toEqual(["A", "X", "B"]);
-    expect(out[1].numbered).toBe(true);
-    expect(summaryOutline({ ...s, working: [], recommendations: [] }, false)).toEqual([]);
+    const out = summaryOutline(s, false);
+    expect(out.map((x) => x.title)).toEqual(["What happened?", "What does this mean?", "What should we do next?"]);
+    expect(out[2].items).toEqual(["Move budget.", "Fix tracking.", "Test a new ad."]);
+    expect(JSON.stringify(out)).not.toContain("42 leads");
+    // Clients see the agency's approved steps, or no steps section at all.
+    expect(summaryOutline(s, true)[2].items).toEqual(["We'll move budget."]);
+    expect(summaryOutline({ ...s, nextSteps: [] }, true).map((x) => x.title)).not.toContain("What should we do next?");
   });
 
-  it("formats escaped, inline-styled HTML for email clients", async () => {
-    const { summaryAsHtml } = await import("../exec-summary");
+  it("formats text and HTML for email with the takeaway once", async () => {
+    const { summaryAsText, summaryAsHtml } = await import("../exec-summary");
+    const text = summaryAsText(s, "ABC: summary");
+    expect(text.startsWith("ABC: summary\n\nYou got 42 leads, 8 more than last month.\n\nWhat happened?")).toBe(true);
+    expect(text.match(/42 leads/g)).toHaveLength(1);
     const html = summaryAsHtml(s, "ABC: summary");
-    expect(html).toContain("Para &lt;two&gt; &amp; more.");
+    expect(html).toContain("&lt;about the same&gt; &amp;");
     expect(html).toContain("<ol ");
-    expect(html).not.toContain("What needs attention");
     expect(html).toMatch(/style="[^"]*font-family:Arial/);
+  });
+
+  it("reads an approved summary in the earlier format as the three questions", async () => {
+    const { fromLegacySummary } = await import("../exec-summary");
+    const out = fromLegacySummary({ overview: "Leads rose 20%. Spend held steady.\n\nBudget is on plan.", working: ["Search did well."], notWorking: ["Display is costly."], recommendations: ["A", "B", "C", "D"], nextSteps: ["We'll do A."] });
+    expect(out.takeaway).toBe("Leads rose 20%.");
+    expect(out.happened).toBe("Spend held steady. Budget is on plan.");
+    expect(out.meaning).toBe("Search did well. Display is costly.");
+    expect(out.recommendations).toHaveLength(3);
   });
 });

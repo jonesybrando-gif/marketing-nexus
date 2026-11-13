@@ -23,20 +23,72 @@ const change = (cur: number | null, prev: number | null | undefined, sample?: [n
   return Math.abs(p) < MIN_CHANGE_PCT ? " (about the same as the previous period)" : ` (${p > 0 ? "up" : "down"} ${formatPct(Math.abs(p), 0)})`;
 };
 
+/**
+ * One summary, three questions: What happened? What does this mean? What
+ * should we do next? `takeaway` is the one- or two-sentence headline shown
+ * while the summary is collapsed; it is never repeated in the sections.
+ */
 export interface ExecutiveSummaryContent {
-  /** One or two paragraphs, separated by a blank line. */
-  overview: string;
-  working: string[];
-  notWorking: string[];
-  /** For the agency: what to change. Internal views only. */
+  takeaway: string;
+  /** What happened? 2–4 sentences. */
+  happened: string;
+  /** What does this mean? 2–4 sentences, plain English. */
+  meaning: string;
+  /** What should we do next? For the agency: at most three, most important first. Internal views only. */
   recommendations: string[];
-  /** The same in agency voice ("We'll…") for client-facing reports; may be empty (then hidden). */
+  /** The same in agency voice ("We'll…") for client-facing copies; may be empty (then hidden). */
   nextSteps: string[];
 }
 
+export const MAX_STEPS = 3;
+export const SUMMARY_TITLES = { happened: "What happened?", meaning: "What does this mean?", next: "What should we do next?" } as const;
+
+/** First sentence of a paragraph, and the rest. */
+export function splitFirstSentence(text: string): [string, string] {
+  const t = text.trim();
+  const m = /^(.+?[.!?])(\s+|$)([\s\S]*)$/.exec(t);
+  return m ? [m[1].trim(), m[3].trim()] : [t, ""];
+}
+
+/**
+ * Reads a summary saved in the earlier format (overview, what's working,
+ * what needs attention, recommendations) as the three questions, so approved
+ * summaries keep showing until someone regenerates them.
+ */
+export function fromLegacySummary(s: { overview: string; working: string[]; notWorking: string[]; recommendations: string[]; nextSteps?: string[] }): ExecutiveSummaryContent {
+  const paras = s.overview.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
+  const [takeaway, rest] = splitFirstSentence(paras[0] ?? "");
+  const findings: string[] = [];
+  for (let i = 0; i < Math.max(s.working.length, s.notWorking.length) && findings.length < 2; i++) {
+    if (s.working[i]) findings.push(s.working[i]);
+    if (s.notWorking[i] && findings.length < 2) findings.push(s.notWorking[i]);
+  }
+  return {
+    takeaway,
+    happened: [rest, ...paras.slice(1)].filter(Boolean).join(" "),
+    meaning: findings.join(" "),
+    recommendations: s.recommendations.slice(0, MAX_STEPS),
+    nextSteps: (s.nextSteps ?? []).slice(0, MAX_STEPS),
+  };
+}
+
+/**
+ * The automatic summary (no AI): the headline result as the takeaway, the
+ * rest of the figures as what happened, the two strongest findings as what
+ * it means, and up to three recommendations.
+ */
 export function autoExecutiveSummary(i: AiContextInput): ExecutiveSummaryContent {
   const { working, notWorking, recommendations, nextSteps } = analyzePerformance(i);
-  return { overview: autoOverview(i), working, notWorking, recommendations, nextSteps };
+  const paras = autoOverview(i).split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
+  const [takeaway, rest] = splitFirstSentence(paras[0] ?? "");
+  const findings = [notWorking[0], working[0]].filter((x): x is string => !!x);
+  return {
+    takeaway,
+    happened: [rest, ...paras.slice(1)].filter(Boolean).join(" "),
+    meaning: findings.join(" ") || "There isn't enough data in this period to draw a firm conclusion yet.",
+    recommendations: recommendations.slice(0, MAX_STEPS),
+    nextSteps: nextSteps.slice(0, MAX_STEPS),
+  };
 }
 
 /** Results for an AI context input: per ad account when available, so nothing is counted twice. */
@@ -112,65 +164,56 @@ export function autoOverview(i: AiContextInput): string {
   return [demo + p1.filter(Boolean).join(" "), p2.join(" ")].filter((x) => x.trim()).join("\n\n");
 }
 
-// --- Email-ready copies -----------------------------------------------------
-
-type SummaryLists = Partial<ExecutiveSummaryContent> & Pick<ExecutiveSummaryContent, "working" | "notWorking" | "recommendations">;
+// --- Sections and email-ready copies ----------------------------------------
 
 export interface SummarySection {
   title: string;
+  /** Prose (What happened? / What does this mean?). */
+  text?: string;
+  /** Steps (What should we do next?). */
   items: string[];
   numbered: boolean;
 }
 
-/** Good news and problems, alternating, so a short list shows both sides. */
-function interleave(a: string[], b: string[]): string[] {
-  const out: string[] = [];
-  for (let i = 0; i < Math.max(a.length, b.length); i++) {
-    if (a[i]) out.push(a[i]);
-    if (b[i]) out.push(b[i]);
-  }
+/**
+ * The expanded summary: What happened?, What does this mean?, What should we
+ * do next?. Client-facing copies show the agency's approved "What we're
+ * doing next" steps instead of recommendations (the section is left out when
+ * there are none). The takeaway isn't part of it, so nothing is said twice.
+ */
+export function summaryOutline(s: ExecutiveSummaryContent, clientFacing: boolean): SummarySection[] {
+  const steps = (clientFacing ? s.nextSteps : s.recommendations).slice(0, MAX_STEPS);
+  const out: SummarySection[] = [];
+  if (s.happened.trim()) out.push({ title: SUMMARY_TITLES.happened, text: s.happened.trim(), items: [], numbered: false });
+  if (s.meaning.trim()) out.push({ title: SUMMARY_TITLES.meaning, text: s.meaning.trim(), items: [], numbered: false });
+  if (steps.length) out.push({ title: SUMMARY_TITLES.next, items: steps, numbered: true });
   return out;
 }
 
-export const OVERVIEW_TITLE = "Performance overview";
-
-/**
- * The summary's sections after the overview: "What the data tells us" (what's
- * working and what needs attention, together) and "Recommended next steps"
- * (most important first). Client-facing copies show the agency's approved
- * "What we're doing next" in place of recommendations, or nothing when there
- * are none. `limit` trims each list for the compact view.
- */
-export function summaryOutline(s: SummaryLists, clientFacing: boolean, limit?: number): SummarySection[] {
-  const cap = (xs: string[]) => (limit ? xs.slice(0, limit) : xs);
-  const insights = interleave(s.working ?? [], s.notWorking ?? []);
-  const steps = clientFacing ? s.nextSteps ?? [] : s.recommendations ?? [];
-  return [
-    { title: "What the data tells us", items: cap(insights), numbered: false },
-    { title: clientFacing ? "What we're doing next" : "Recommended next steps", items: cap(steps), numbered: !clientFacing },
-  ].filter((sec) => sec.items.length > 0);
-}
-
-/** Plain text for pasting into any email client. */
-export function summaryAsText(s: Partial<ExecutiveSummaryContent> & Pick<ExecutiveSummaryContent, "overview" | "working" | "notWorking" | "recommendations">, heading: string, opts: { clientFacing?: boolean } = {}): string {
-  const out = [heading, "", OVERVIEW_TITLE, ...s.overview.split(/\n{2,}/).flatMap((p) => [p.trim(), ""])];
+/** Plain text for pasting into any email client: the takeaway as the opening line, then the three sections. */
+export function summaryAsText(s: ExecutiveSummaryContent, heading: string, opts: { clientFacing?: boolean } = {}): string {
+  const out = [heading, "", s.takeaway.trim(), ""];
   for (const sec of summaryOutline(s, !!opts.clientFacing)) {
-    out.push(sec.title, ...sec.items.map((x, i) => `${sec.numbered ? `${i + 1}.` : "•"} ${x}`), "");
+    out.push(sec.title);
+    if (sec.text) out.push(sec.text);
+    out.push(...sec.items.map((x, i) => `${i + 1}. ${x}`), "");
   }
-  return out.join("\n").trim();
+  return out.join("\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
 const esc = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
 /** Simple inline-styled HTML that keeps its formatting when pasted into Gmail or Outlook. */
-export function summaryAsHtml(s: Partial<ExecutiveSummaryContent> & Pick<ExecutiveSummaryContent, "overview" | "working" | "notWorking" | "recommendations">, heading: string, opts: { clientFacing?: boolean } = {}): string {
+export function summaryAsHtml(s: ExecutiveSummaryContent, heading: string, opts: { clientFacing?: boolean } = {}): string {
   const p = "margin:0 0 12px;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;color:#1f2328;";
   const h = "margin:16px 0 6px;font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:bold;color:#1f2328;";
   const li = "margin:0 0 6px;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;color:#1f2328;";
-  const parts = [`<p style="${h}margin-top:0;font-size:16px;">${esc(heading)}</p>`, `<p style="${h}">${OVERVIEW_TITLE}</p>`, ...s.overview.split(/\n{2,}/).map((x) => `<p style="${p}">${esc(x.trim())}</p>`)];
+  const parts = [`<p style="${h}margin-top:0;font-size:16px;">${esc(heading)}</p>`];
+  if (s.takeaway.trim()) parts.push(`<p style="${p}">${esc(s.takeaway.trim())}</p>`);
   for (const sec of summaryOutline(s, !!opts.clientFacing)) {
-    const tag = sec.numbered ? "ol" : "ul";
-    parts.push(`<p style="${h}">${esc(sec.title)}</p>`, `<${tag} style="margin:0 0 12px;padding-left:22px;">${sec.items.map((x) => `<li style="${li}">${esc(x)}</li>`).join("")}</${tag}>`);
+    parts.push(`<p style="${h}">${esc(sec.title)}</p>`);
+    if (sec.text) parts.push(`<p style="${p}">${esc(sec.text)}</p>`);
+    if (sec.items.length) parts.push(`<ol style="margin:0 0 12px;padding-left:22px;">${sec.items.map((x) => `<li style="${li}">${esc(x)}</li>`).join("")}</ol>`);
   }
   return `<div>${parts.join("")}</div>`;
 }
