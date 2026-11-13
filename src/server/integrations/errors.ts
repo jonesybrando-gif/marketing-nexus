@@ -7,6 +7,7 @@ export type IntegrationErrorKind =
   | "AUTH_REVOKED" // refresh token revoked/expired → user must reconnect
   | "PERMISSION_DENIED" // login no longer has access to this account
   | "NOT_APPROVED" // e.g. Google Ads developer token not approved for production accounts
+  | "APP_BLOCKED" // the platform blocked our app or developer account (e.g. Meta "#200 API access blocked"): every account fails, none lost access
   | "NOT_CONFIGURED" // server is missing credentials
   | "RATE_LIMITED" // retry later
   | "TRANSIENT" // network / 5xx — retry

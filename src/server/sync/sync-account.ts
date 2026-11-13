@@ -181,6 +181,9 @@ export async function syncAccount(accountId: string, kind: SyncKind, deps: SyncD
     const err = e instanceof IntegrationError ? e : new IntegrationError("INVALID_REQUEST", (e as Error).message);
     if (err.kind === "AUTH_REVOKED") await markConnectionNeedsReauth(connectionId, err.message);
     if (err.kind === "PERMISSION_DENIED") await prisma.adAccount.update({ where: { id: accountId }, data: { status: "DISCONNECTED" } });
+    // App-level block: keep accounts ACTIVE so syncs resume on their own once the platform lifts it;
+    // the connection shows the error (Settings › Connections) and rows show as stale meanwhile.
+    if (err.kind === "APP_BLOCKED") await prisma.platformConnection.update({ where: { id: connectionId }, data: { lastError: err.message } });
     if (err.kind === "NOT_APPROVED") {
       await prisma.platformConnection.update({ where: { id: connectionId }, data: { status: "PENDING_APPROVAL", lastError: err.message } });
     }

@@ -74,6 +74,9 @@ export function classifyMetaError(status: number, body: unknown, headers?: Heade
   let kind: IntegrationErrorKind;
   if (code === 190 || code === 102) kind = "AUTH_REVOKED";
   else if ((code !== undefined && RATE_LIMIT_CODES.has(code)) || (code !== undefined && code >= 80000 && code <= 80014) || status === 429) kind = "RATE_LIMITED";
+  // "(#200) API access blocked" is Meta blocking the app or developer account (e.g. "Account confirmation
+  // needed"), not this ad account losing access: marking accounts disconnected would only make them flap.
+  else if (code === 200 && /api access blocked/i.test(message)) kind = "APP_BLOCKED";
   else if (code === 10 || (code !== undefined && code >= 200 && code <= 299)) kind = "PERMISSION_DENIED";
   else if (err?.is_transient || code === 1 || code === 2 || status >= 500) kind = "TRANSIENT";
   else kind = "INVALID_REQUEST";
