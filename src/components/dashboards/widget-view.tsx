@@ -7,9 +7,8 @@ import { formatMetric } from "@/lib/dashboards/metrics";
 import { widgetTitle } from "@/lib/dashboards/describe";
 import type { DashboardWidget } from "@/lib/dashboards/types";
 import type { CallLogRow, FormLogRow, WidgetData } from "@/lib/dashboards/widget-data";
-import { changeWords } from "@/lib/change";
+import { changeWords, shortChangeWords } from "@/lib/change";
 import { InfoTip } from "@/components/ui/info-tip";
-import { ChangeLine } from "@/components/kpi/kpi-card";
 import { SeriesChart } from "@/components/charts/series-chart";
 import { BreakdownBarChart, MetricPieChart } from "@/components/charts/breakdown-charts";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
@@ -233,6 +232,9 @@ function FormLog({ rows, total, timeZone }: { rows: FormLogRow[]; total: number;
   );
 }
 
+/** Good news green, bad news red, neutral grey: decided per metric (lower cost per conversion is good). */
+const TONE_TEXT = { good: "text-good-ink", bad: "text-critical-ink", neutral: "text-text-2" } as const;
+
 function KpiWidget({ title, data, currency, fillCls, hideChange = false }: { title: string; data: Extract<WidgetData, { kind: "kpi" }>; currency: string; fillCls: string; hideChange?: boolean }) {
   // Same wording as the report tiles: "Up 8% from 120 · better", "About the same as 120", "Too few to compare".
   const verdict = data.verdict ?? (data.tone === "good" ? "better" : data.tone === "bad" ? "worse" : data.metric.better === "neutral" ? "neutral" : "same");
@@ -246,9 +248,13 @@ function KpiWidget({ title, data, currency, fillCls, hideChange = false }: { tit
       <p className="truncate text-xl font-semibold tabular">{formatMetric(data.metric, data.value, currency)}</p>
       {!hideChange && <p className="flex min-w-0 items-center gap-1 text-xs tabular">
         {data.changePct === null ? (
-          <span className="text-text-3">{data.value === null ? "not reported" : data.hasComparison ? "no comparison data" : "no comparison"}</span>
+          <span className="text-text-3">{data.value === null ? "Not reported" : data.hasComparison ? "No comparison data" : "No comparison"}</span>
         ) : (
-          <ChangeLine tone={data.tone} changePct={data.changePct} text={words.text} aria={words.aria} />
+          // Short label on the tile; the full wording ("Up 93% from 14 · better") on hover and for screen readers.
+          <span className={cn("truncate", verdict === "few" || verdict === "same" ? "text-text-3" : TONE_TEXT[data.tone ?? "neutral"])} title={words.text}>
+            <span aria-hidden>{shortChangeWords(verdict, data.changePct, data.vsLabel ?? "previous period")}</span>
+            <span className="sr-only">{words.aria}</span>
+          </span>
         )}
       </p>}
       <FluidSparkline values={data.spark} />

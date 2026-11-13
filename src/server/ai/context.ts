@@ -29,6 +29,9 @@ export function contextInput(rep: ClientReport): AiContextInput {
   const metaById = new Map(pacing.accounts.map((a) => [a.id, a]));
   // When the report covers exactly a past budget month, its final result is relevant.
   const past = rep.history.find((h) => h.period.start === rep.range.from && h.period.end === rep.range.to && h.total);
+  // Only the ad accounts the report is filtered to (all by default).
+  const scope = rep.accountScope?.ids ?? null;
+  const inScope = client.accounts.filter((a) => !scope || scope.includes(a.id));
   return {
     clientName: client.name,
     currency: client.currency,
@@ -39,7 +42,7 @@ export function contextInput(rep: ClientReport): AiContextInput {
     kpis: template.kpis,
     totals: perf.totals,
     previous: cmpPerf?.totals ?? null,
-    accounts: client.accounts.map((a) => {
+    accounts: inScope.map((a) => {
       const meta = metaById.get(a.id);
       const dataNote =
         isAccountRetired(a)
@@ -51,7 +54,7 @@ export function contextInput(rep: ClientReport): AiContextInput {
             : null;
       return { platform: PLATFORM_LABEL[a.platform], name: a.name, totals: perf.byAccount[a.id] ?? null, previousTotals: cmpPerf?.byAccount[a.id] ?? null, spendVerified: a.spendIsVerified, dataNote };
     }),
-    campaigns: client.accounts.flatMap((a) =>
+    campaigns: inScope.flatMap((a) =>
       a.campaigns
         .filter((cmp) => (perf.byCampaign[cmp.id]?.costMinor ?? 0) > 0)
         .map((cmp) => {

@@ -27,6 +27,36 @@ export interface ReportParams {
   compare?: string;
   from?: string;
   to?: string;
+  /** Ad account filter: comma-separated AdAccount ids. Omitted = all paid media accounts. */
+  accounts?: string;
+}
+
+/**
+ * Which ad accounts the report adds up. Default: every account in the
+ * client's reporting currency (amounts in different currencies are never
+ * added together). `accounts` narrows it to the chosen ones; choosing only
+ * accounts in another currency reports in that currency.
+ */
+export function resolveAccountScope<A extends { id: string; currency: string }>(accounts: A[], clientCurrency: string, param: string | undefined) {
+  const wanted = (param ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  const picked = wanted.length ? accounts.filter((a) => wanted.includes(a.id)) : [];
+  const filtered = picked.length > 0;
+  const base = filtered ? picked : accounts;
+  const currencies = [...new Set(base.map((a) => a.currency))];
+  const currency = base.length === 0 ? clientCurrency : currencies.includes(clientCurrency) ? clientCurrency : currencies.sort()[0];
+  const inScope = base.filter((a) => a.currency === currency);
+  const otherCurrency = base.filter((a) => a.currency !== currency);
+  return {
+    /** Accounts added up in this report. */
+    accounts: inScope,
+    /** True when the user picked accounts (not the default "all"). */
+    filtered,
+    /** Ids passed to the performance query; null = no restriction needed. */
+    ids: filtered || otherCurrency.length ? inScope.map((a) => a.id) : null,
+    currency,
+    /** Accounts left out because they report in a different currency. */
+    otherCurrency,
+  };
 }
 
 /** Client, template and the resolved date ranges: cheap, and needed by everything else. */
@@ -47,14 +77,27 @@ async function loadReportBase(clientId: string, params: ReportParams, now: Date)
     range = resolveRange(template.defaultRange, today);
   }
   const cmpRange = comparisonRange(range, compareMode);
-  return { client, today, preset, compareMode, range, cmpRange, template, hasCustomTemplate };
+  const scope = resolveAccountScope(client.accounts, client.currency, params.accounts);
+  // The figures (tiles, charts, summary, comparisons) add up only the accounts in scope; the
+  // account list itself stays complete (settings, sync status), and accounts outside the scope
+  // simply have no rows in the figures.
+  const scopedClient = { ...client, currency: scope.currency };
+  const accountScope = {
+    filtered: scope.filtered,
+    ids: scope.ids,
+    all: client.accounts.map((a) => ({ id: a.id, name: a.name, platform: a.platform, currency: a.currency })),
+    selected: scope.filtered ? scope.accounts.map((a) => a.id) : [],
+    otherCurrency: scope.otherCurrency.map((a) => ({ id: a.id, name: a.name, currency: a.currency })),
+  };
+  return { client: scopedClient, today, preset, compareMode, range, cmpRange, template, hasCustomTemplate, accountScope };
 }
 
 type ReportBase = Awaited<ReturnType<typeof loadReportBase>>;
 
 /** The data-heavy part: performance for the range and comparison, budget history and chart notes. */
 async function loadReportDetail(base: ReportBase, now: Date) {
-  const { client, today, range, cmpRange } = base;
+  const { client, today, range, cmpRange, accountScope } = base;
+  const ids = accountScope.ids ?? undefined;
   const clientId = client.id;
   // The three previous months for budget history.
   const historyDates = [1, 2, 3].map((n) => {
@@ -65,8 +108,8 @@ async function loadReportDetail(base: ReportBase, now: Date) {
   const month = monthBounds(today);
   const [history, perf, cmpPerf, noteRows, callsFromAds] = await Promise.all([
     Promise.all(historyDates.map((d) => loadPacing({ id: clientId }, now, d).then((r) => r[0]))),
-    getClientPerformance(clientId, range),
-    cmpRange ? getClientPerformance(clientId, cmpRange) : Promise.resolve(null),
+    getClientPerformance(clientId, range, ids),
+    cmpRange ? getClientPerformance(clientId, cmpRange, ids) : Promise.resolve(null),
     // Chart notes for the report range and the current budget period.
     prisma.chartNote.findMany({
       where: { clientId, date: { gte: isoToDate(minDate(range.from, month.start)), lte: isoToDate(maxDate(range.to, month.end)) } },

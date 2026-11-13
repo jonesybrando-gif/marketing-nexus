@@ -7,7 +7,7 @@ import type { ClientReport } from "../client-report";
 import { comparisonRange, resolveRange, type CompareMode, type DateRange, type RangePreset } from "@/lib/date-ranges";
 import { eachDay, type IsoDate } from "@/lib/pacing/dates";
 import { dailyKpiValue, KPI_BY_KEY, kpiValues, type KpiKey } from "@/lib/kpis";
-import type { MetricTotals } from "@/lib/metrics";
+import { addInto, emptyTotals, type MetricTotals } from "@/lib/metrics";
 import type { DailyValue } from "@/lib/metrics-registry/aggregate";
 import { DIMENSIONS, type MetricSource } from "@/lib/metrics-registry";
 import { PLATFORM_LABEL, type PlatformKey } from "@/lib/platforms";
@@ -27,6 +27,8 @@ export interface AdData {
   cmpPerf: ClientPerformance | null;
   campaigns: { id: string; name: string }[];
   accounts: { id: string; name: string; platform: PlatformKey }[];
+  /** The report's account filter (performance already limited to these); null = all accounts. */
+  accountIds?: string[] | null;
 }
 
 export interface ResolveContext {
@@ -51,15 +53,16 @@ export interface ResolverDeps {
   keywordRankTable: KeywordRankTableFn;
   callLog: CallLogFn;
   formLog: FormLogFn;
-  adPerformance: (clientId: string, range: DateRange) => Promise<ClientPerformance>;
+  adPerformance: (clientId: string, range: DateRange, accountIds?: string[]) => Promise<ClientPerformance>;
 }
 
 export const defaultResolverDeps: ResolverDeps = { metricTotals, metricSeries, metricBreakdown, keywordRankTable, callLog, formLog, adPerformance: getClientPerformance };
 
 /** The ad part of a loaded client report, in the shape the resolver needs. */
-export function adDataFromReport(rep: Pick<ClientReport, "perf" | "cmpPerf" | "client">): AdData | null {
+export function adDataFromReport(rep: Pick<ClientReport, "perf" | "cmpPerf" | "client"> & { accountScope?: ClientReport["accountScope"] }): AdData | null {
   if (rep.client.accounts.length === 0) return null;
   return {
+    accountIds: rep.accountScope?.ids ?? null,
     perf: rep.perf,
     cmpPerf: rep.cmpPerf,
     campaigns: rep.client.accounts.flatMap((a) => a.campaigns.map((c) => ({ id: c.id, name: c.name }))),
@@ -168,7 +171,7 @@ export async function resolveWidgets(widgets: DashboardWidget[], ctx: ResolveCon
   if (ctx.ads) {
     for (const pk of adPeriods) {
       const p = periods.get(pk)!;
-      jobs.push(Promise.all([deps.adPerformance(ctx.clientId, p.range), p.cmp ? deps.adPerformance(ctx.clientId, p.cmp) : null]).then(([cur, cmp]) => adPerf.set(pk, { cur, cmp }), () => adPerf.set(pk, null)));
+      jobs.push(Promise.all([deps.adPerformance(ctx.clientId, p.range, ctx.ads!.accountIds ?? undefined), p.cmp ? deps.adPerformance(ctx.clientId, p.cmp, ctx.ads!.accountIds ?? undefined) : null]).then(([cur, cmp]) => adPerf.set(pk, { cur, cmp }), () => adPerf.set(pk, null)));
     }
   }
   const breakdowns = new Map<string, Promise<WidgetData>>();
@@ -255,6 +258,9 @@ async function buildWidget(w: DashboardWidget, p: Period, ctx: ResolveContext, l
   }
 }
 
+/** What the change compares against, for the tile's short label. */
+const vsLabel = (ctx: ResolveContext, w: DashboardWidget) => (ctx.compareMode === "previous_month" && !w.range ? "previous month" : "previous period");
+
 function buildKpi(w: DashboardWidget, p: Period, ctx: ResolveContext, l: Loaded): WidgetData {
   const key = w.metrics?.[0] ?? "";
   const info = metricInfo(key);
@@ -263,13 +269,13 @@ function buildKpi(w: DashboardWidget, p: Period, ctx: ResolveContext, l: Loaded)
   if (ad) {
     if (!l.ad) return emptyFor("ads", ctx.linked);
     const [kv] = kpiValues([ad], l.ad.cur.totals, l.ad.cmp?.totals ?? null);
-    return { kind: "kpi", metric: info, value: kv.value, previous: kv.previous, changePct: kv.changePct, tone: kv.tone, verdict: kv.verdict, spark: adDaily(l.ad.cur, ad, p.range), hasComparison: !!l.ad.cmp };
+    return { kind: "kpi", metric: info, value: kv.value, previous: kv.previous, changePct: kv.changePct, tone: kv.tone, verdict: kv.verdict, spark: adDaily(l.ad.cur, ad, p.range), hasComparison: !!l.ad.cmp, vsLabel: vsLabel(ctx, w) };
   }
   const value = l.totals?.cur[key] ?? null;
   const previous = l.totals?.cmp?.[key] ?? null;
   const spark = alignDaily(l.series?.cur[key], p.range);
   if (value === null && spark.every((v) => v === null)) return emptyFor(info.source, ctx.linked);
-  return { kind: "kpi", metric: info, value, previous, ...changeOf(value, previous, info.better, { format: info.format }), spark, hasComparison: !!p.cmp };
+  return { kind: "kpi", metric: info, value, previous, ...changeOf(value, previous, info.better, { format: info.format }), spark, hasComparison: !!p.cmp, vsLabel: vsLabel(ctx, w) };
 }
 
 function buildSeries(w: DashboardWidget, p: Period, ctx: ResolveContext, l: Loaded): WidgetData {
@@ -300,6 +306,17 @@ function buildSeries(w: DashboardWidget, p: Period, ctx: ResolveContext, l: Load
   return { kind: "series", metrics, dates, current, previous, previousDates };
 }
 
+/** Accounts added up per ad platform (Google Ads, Meta Ads, …): raw totals summed, rates derived from the sums. */
+function byNetwork(accounts: AdData["accounts"], perf: ClientPerformance): { label: string; t: MetricTotals | undefined }[] {
+  const groups = new Map<PlatformKey, MetricTotals>();
+  for (const a of accounts) {
+    const t = perf.byAccount[a.id];
+    if (!t) continue;
+    addInto((groups.get(a.platform) ?? groups.set(a.platform, emptyTotals()).get(a.platform))!, t);
+  }
+  return [...groups].map(([platform, t]) => ({ label: PLATFORM_LABEL[platform], t }));
+}
+
 async function resolveBreakdown(w: DashboardWidget, p: Period, ctx: ResolveContext, deps: ResolverDeps): Promise<WidgetData> {
   const keys = w.metrics ?? [];
   const infos = keys.map(metricInfo);
@@ -311,15 +328,17 @@ async function resolveBreakdown(w: DashboardWidget, p: Period, ctx: ResolveConte
   const label = dimensionLabel(source, dim);
   if (source === "ads") {
     if (!ctx.ads) return emptyFor("ads", ctx.linked);
-    const perf = p.key === "base" ? ctx.ads.perf : await deps.adPerformance(ctx.clientId, p.range);
+    const perf = p.key === "base" ? ctx.ads.perf : await deps.adPerformance(ctx.clientId, p.range, ctx.ads.accountIds ?? undefined);
     const items: { label: string; t: MetricTotals | undefined }[] =
       dim === "campaign"
         ? ctx.ads.campaigns.map((c) => ({ label: displayCampaignName(c.name), t: perf.byCampaign[c.id] }))
-        : ctx.ads.accounts.map((a, _, all) => ({
-            label: all.filter((b) => b.platform === a.platform).length > 1 ? `${PLATFORM_LABEL[a.platform]} · ${a.name}` : PLATFORM_LABEL[a.platform],
-            t: perf.byAccount[a.id],
-          }));
-    if (dim !== "campaign" && dim !== "platform") return { kind: "empty", reason: "no_data", source, message: "Pick a breakdown for this widget." };
+        : dim === "network"
+          ? byNetwork(ctx.ads.accounts, perf)
+          : ctx.ads.accounts.map((a, _, all) => ({
+              label: all.filter((b) => b.platform === a.platform).length > 1 ? `${PLATFORM_LABEL[a.platform]} · ${a.name}` : PLATFORM_LABEL[a.platform],
+              t: perf.byAccount[a.id],
+            }));
+    if (dim !== "campaign" && dim !== "platform" && dim !== "network") return { kind: "empty", reason: "no_data", source, message: "Pick a breakdown for this widget." };
     const first = metrics[0];
     const dir = first.better === "down" ? 1 : -1;
     const rows = items
