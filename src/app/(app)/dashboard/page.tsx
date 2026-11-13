@@ -29,8 +29,8 @@ export const metadata = { title: "Home" };
 export default async function DashboardPage({ searchParams }: { searchParams: Promise<{ status?: string }> }) {
   const user = await requireAgencyStaff();
   const { status } = await searchParams;
-  // The full pacing table moved to Clients › Budgets; old links with a status filter still land on it.
-  if (status) redirect(`/clients?view=budgets&status=${encodeURIComponent(status)}#pacing`);
+  // The full pacing table is Budget Pacing; old links with a status filter still land on it.
+  if (status) redirect("/budget-pacing");
   // The shell streams at once; the figures load inside an in-page boundary (not a
   // route loading.tsx, which made value-returning server actions hang).
   return (

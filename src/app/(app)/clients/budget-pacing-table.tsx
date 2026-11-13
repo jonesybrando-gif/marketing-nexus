@@ -150,7 +150,7 @@ export function BudgetPacingTable({
         )}
         <Select
           value={month.key}
-          onChange={(e) => startNav(() => router.push(`/clients?view=budgets&month=${e.target.value}`))}
+          onChange={(e) => startNav(() => router.push(`/budget-pacing?month=${e.target.value}`))}
           className="w-full sm:w-44"
           aria-label="Month"
           disabled={navigating}

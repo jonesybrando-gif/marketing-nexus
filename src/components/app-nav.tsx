@@ -3,12 +3,12 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { BarChart3, Bell, Building2, FileText, Home, Menu as MenuIcon, Plug, Settings, Sparkles, X } from "lucide-react";
+import { BarChart3, Bell, Building2, FileText, Gauge, Home, Menu as MenuIcon, Plug, Settings, Sparkles, X } from "lucide-react";
 import { cn } from "./ui/cn";
 import { LinkPending } from "./link-pending";
 import { loadOnHover } from "@/lib/link-hover";
 
-const ICONS = { home: Home, clients: Building2, reports: BarChart3, report: FileText, insights: Sparkles, alerts: Bell, integrations: Plug, settings: Settings } as const;
+const ICONS = { home: Home, clients: Building2, reports: BarChart3, report: FileText, insights: Sparkles, pacing: Gauge, alerts: Bell, integrations: Plug, settings: Settings } as const;
 
 export interface NavItem {
   href: string;

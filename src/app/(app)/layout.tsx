@@ -21,12 +21,13 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     user.role === "CLIENT_USER" ? Promise.resolve(0) : openAlertIssueCount(user.agencyId, user.id).then((r) => r.issues).catch(() => 0),
   ]);
   const staff = user.role !== "CLIENT_USER";
-  // Order: Home, Clients, AI Insights (issues and opportunities; formerly Alerts), Reports, Settings (incl. connections).
+  // Order: Home, Clients, Budget Pacing, AI Insights (issues and opportunities; formerly Alerts), Reports, Settings (incl. connections).
   const admin = user.role === "AGENCY_ADMIN";
   const nav: NavItem[] = staff
     ? [
         { href: "/dashboard", label: "Home", icon: "home" },
         { href: "/clients", label: "Clients", icon: "clients" },
+        { href: "/budget-pacing", label: "Budget Pacing", icon: "pacing" },
         { href: "/insights", label: "AI Insights", icon: "insights", count: unread, match: ["/alerts"] },
         { href: "/reports", label: "Reports", icon: "report" },
         // Account managers can't change agency settings, but they manage connections.
@@ -39,7 +40,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     ? [
         { href: "/clients?new=1", label: "New client", kind: "Action" as const },
         ...nav.map((n) => ({ href: n.href, label: n.label, kind: "Page" as const })),
-        { href: "/clients?view=budgets", label: "Budgets", kind: "Page" as const, hint: "Clients" },
+        { href: "/clients?view=performance", label: "Client performance", kind: "Page" as const, hint: "Clients" },
         { href: "/clients?view=manage", label: "Manage clients", kind: "Page" as const, hint: "Clients" },
         ...(user.role === "AGENCY_ADMIN"
           ? [

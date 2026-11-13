@@ -1,8 +1,11 @@
 import { Suspense } from "react";
 import Link from "next/link";
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 import { Plus } from "lucide-react";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/server/db";
-import { requireAgencyStaff } from "@/server/access";
+import { requireAgencyStaff, visibleClientsWhere } from "@/server/access";
 import { withRememberedRange } from "@/server/remembered-range";
 import { comparisonRange, resolveRange, type CompareMode, type RangePreset } from "@/lib/date-ranges";
 import { todayInTimeZone } from "@/lib/pacing/dates";
@@ -14,32 +17,35 @@ import { DialogButton } from "./client-dialogs";
 import { NewClientForm } from "./new-client-form";
 import { ManageView, type ManageSp } from "./manage-view";
 import { PerformanceView } from "./performance-view";
-import { BudgetsView, monthLabel } from "./budgets-view";
-import { resolveMonth } from "@/server/budget-pacing";
 import { CombinedView } from "./combined-view";
+import { ClientDirectory, type DirectoryClient } from "./client-directory";
+import { CLIENTS_VIEW_COOKIE, parseLayout } from "@/lib/client-directory";
+import type { SessionUser } from "@/lib/access";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Clients" };
 
 const PRESETS: RangePreset[] = ["mtd", "last_month", "last_7", "last_30", "last_90", "custom"];
-type View = "performance" | "combined" | "budgets" | "manage" | "removed";
+type View = "performance" | "combined" | "manage" | "removed";
 
-const VIEWS: { key: Exclude<View, "removed">; label: string }[] = [
+const VIEWS: { key: Exclude<View, "removed" | "combined">; label: string }[] = [
   { key: "performance", label: "Performance" },
-  { key: "budgets", label: "Budgets" },
   { key: "manage", label: "Manage" },
 ];
 
 /**
- * One place for clients, three views: Performance (how each client is doing),
- * Budgets (Budget Pacing: one row per client and platform for a month) and Manage (labels, adding and
- * removing clients). Replaces the separate "All clients" and "Clients" pages.
+ * /clients is the client directory: find a client and open its dashboard.
+ * The agency-wide Performance table and Manage (labels, adding and removing
+ * clients) stay at ?view=performance and ?view=manage (search / Cmd-K).
+ * Budget Pacing moved to /budget-pacing; old ?view=budgets links redirect.
  */
 export default async function ClientsPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const user = await requireAgencyStaff();
   const raw = await searchParams;
   const admin = user.role === "AGENCY_ADMIN";
-  const view: View = raw.view === "removed" && admin ? "removed" : raw.view === "manage" || raw.view === "budgets" || raw.view === "combined" ? raw.view : "performance";
+  if (raw.view === "budgets") redirect(raw.month ? `/budget-pacing?month=${encodeURIComponent(raw.month)}` : "/budget-pacing");
+  if (!raw.view) return <Directory user={user} openNew={raw.new === "1"} />;
+  const view: View = raw.view === "removed" && admin ? "removed" : raw.view === "manage" || raw.view === "combined" ? raw.view : "performance";
   const dated = view === "performance" || view === "combined";
   // Only the Performance views use a date range; the others keep their own query untouched.
   const sp = dated ? await withRememberedRange(raw) : raw;
@@ -56,20 +62,19 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
   }
   const cmpRange = comparisonRange(range, compareMode);
   const rangeQuery = `range=${preset}&compare=${compareMode}${preset === "custom" ? `&from=${range.from}&to=${range.to}` : ""}`;
-  const month = view === "budgets" ? resolveMonth(sp.month, today) : null;
   const managers = admin ? await prisma.user.findMany({ where: { agencyId: user.agencyId, role: "ACCOUNT_MANAGER" }, select: { id: true, name: true }, orderBy: { name: "asc" } }) : [];
 
   return (
     <div className="mx-auto flex max-w-[1400px] flex-col gap-6">
       <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
         <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
-          <h1 className="text-2xl font-semibold tracking-tight">{view === "removed" ? "Removed clients" : view === "combined" ? "All clients combined" : view === "budgets" ? "Budget Pacing" : "Clients"}</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">{view === "removed" ? "Removed clients" : view === "combined" ? "All clients combined" : view === "manage" ? "Manage clients" : "Client performance"}</h1>
           {view !== "removed" && view !== "combined" && (
             <nav aria-label="Client views" className="inline-flex rounded-lg bg-track/50 p-0.5">
               {VIEWS.map((v) => (
                 <Link
                   key={v.key}
-                  href={v.key === "performance" ? "/clients" : `/clients?view=${v.key}`}
+                  href={`/clients?view=${v.key}`}
                   aria-current={view === v.key ? "page" : undefined}
                   className={cn(
                     "inline-flex h-8 items-center rounded-md px-3.5 text-[13px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring",
@@ -84,14 +89,13 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {dated && <RangeControls preset={preset} compare={compareMode} from={range.from} to={range.to} />}
-          {admin && view !== "removed" && view !== "combined" && view !== "budgets" && (
+          {admin && view === "manage" && (
             <DialogButton label="New client" title="New client" description="Link its ad accounts afterwards from the client's Ad accounts page." defaultOpen={sp.new === "1"} icon={<Plus className="h-4 w-4" aria-hidden />}>
               <NewClientForm managers={managers} />
             </DialogButton>
           )}
         </div>
       </header>
-      {month && <p className="-mt-3 text-sm text-text-2">{monthLabel(month.key)}</p>}
       {dated && (
         <p className="-mt-3 text-sm text-text-2">
           {formatDate(range.from)} – {formatDate(range.to, { month: "short", day: "numeric", year: "numeric" })}
@@ -99,17 +103,51 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
         </p>
       )}
 
-      <Suspense key={view} fallback={<PageSkeleton tiles={0} cards={view === "budgets" ? 1 : 2} />}>
+      <Suspense key={view} fallback={<PageSkeleton tiles={0} cards={2} />}>
         {view === "performance" ? (
           <PerformanceView user={user} today={today} range={range} cmpRange={cmpRange} preset={preset} compareMode={compareMode} initialFilter={sp.filter} />
         ) : view === "combined" ? (
           <CombinedView user={user} range={range} cmpRange={cmpRange} rangeQuery={rangeQuery} />
-        ) : view === "budgets" ? (
-          <BudgetsView user={user} month={month!} currentKey={today.slice(0, 7)} />
         ) : (
           <ManageView user={user} sp={sp as ManageSp} />
         )}
       </Suspense>
+    </div>
+  );
+}
+
+/** The directory: every client the user can see, A–Z, with a logo when there is one. */
+async function Directory({ user, openNew }: { user: SessionUser; openNew: boolean }) {
+  const admin = user.role === "AGENCY_ADMIN";
+  const [clients, managers, jar] = await Promise.all([
+    prisma.client.findMany({ where: visibleClientsWhere(user), select: { id: true, name: true }, orderBy: { name: "asc" } }),
+    admin ? prisma.user.findMany({ where: { agencyId: user.agencyId, role: "ACCOUNT_MANAGER" }, select: { id: true, name: true }, orderBy: { name: "asc" } }) : Promise.resolve([]),
+    cookies(),
+  ]);
+  // Only a fingerprint of each logo: the images load from /api/clients/[id]/logo, cached by version.
+  const versions = clients.length
+    ? await prisma.$queryRaw<{ id: string; v: string }[]>`SELECT id, md5("logoUrl") AS v FROM "Client" WHERE id IN (${Prisma.join(clients.map((c) => c.id))}) AND "logoUrl" IS NOT NULL AND "logoUrl" <> ''`
+    : [];
+  const version = new Map(versions.map((r) => [r.id, r.v.slice(0, 12)]));
+  const rows: DirectoryClient[] = clients
+    .map((c) => ({ id: c.id, name: c.name, logo: version.has(c.id) ? `/api/clients/${c.id}/logo?v=${version.get(c.id)}` : null }))
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+  return (
+    <div className="mx-auto flex max-w-[1400px] flex-col gap-5">
+      <header>
+        <h1 className="text-2xl font-semibold tracking-tight">Clients</h1>
+      </header>
+      <ClientDirectory
+        clients={rows}
+        initialLayout={parseLayout(jar.get(CLIENTS_VIEW_COOKIE)?.value)}
+        actions={
+          admin ? (
+            <DialogButton label="New Client" title="New client" description="Link its ad accounts afterwards from the client's Ad accounts page." defaultOpen={openNew} icon={<Plus className="h-4 w-4" aria-hidden />}>
+              <NewClientForm managers={managers} />
+            </DialogButton>
+          ) : undefined
+        }
+      />
     </div>
   );
 }
