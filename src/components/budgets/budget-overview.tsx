@@ -82,12 +82,13 @@ export function BudgetProgressBar({ o }: { o: BudgetOverview }) {
 }
 
 /** Monthly Budget, Spent to Date and Remaining, then the progress bar and any data caveats. */
-export function BudgetOverviewPanel({ o, monthLabel, rangeNote, offPace = 0 }: { o: BudgetOverview; monthLabel: string; rangeNote?: string | null; offPace?: number }) {
+export function BudgetOverviewPanel({ o, monthLabel, rangeNote, offPace = 0, extraNotes = [] }: { o: BudgetOverview; monthLabel: string; rangeNote?: string | null; offPace?: number; extraNotes?: string[] }) {
   const money = (m: number) => formatMoney(m, o.currency, { whole: true });
   const notes = [
     o.status === "ON_PACE" && offPace > 0 ? `Overall spend is on track, but ${offPace === 1 ? "1 account is" : `${offPace} accounts are`} off pace; see the table below.` : null,
     o.incomplete ? "Spend is missing for at least one budgeted account, so Spent to Date is partial." : null,
     o.unbudgetedSpendMinor > 0 ? `${money(o.unbudgetedSpendMinor)} was spent on accounts with no budget this month; it isn't counted above.` : null,
+    ...extraNotes,
     rangeNote ?? null,
   ].filter((n): n is string => !!n);
   return (
