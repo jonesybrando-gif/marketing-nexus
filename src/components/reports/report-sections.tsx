@@ -3,7 +3,7 @@ import { isAccountDisconnected, isAccountRetired } from "@/lib/account-health";
 import type { ReactNode } from "react";
 import { AlertTriangle, CalendarRange, EyeOff, Plug, RefreshCw, Unplug } from "lucide-react";
 import type { PacingRow } from "@/server/pacing-service";
-import type { ClientReport } from "@/server/client-report";
+import type { ClientReport, ReportParams } from "@/server/client-report";
 import { PRESET_LABEL } from "@/lib/date-ranges";
 import { derive, type MetricTotals } from "@/lib/metrics";
 import { ALL_KPI_KEYS, dailyKpiValue, KPI_BY_KEY, kpiValues, untrackedKpis, type KpiKey, type KpiValue } from "@/lib/kpis";
@@ -465,7 +465,9 @@ export function TrendsSection({ rep, marker, metrics, title = "Performance trend
 }
 
 export function campaignRows(rep: ClientReport): CampaignRow[] {
-  return rep.client.accounts.flatMap((a) =>
+  // Only the accounts the page adds up (the account selector, one currency).
+  const ids = rep.accountScope?.ids;
+  return rep.client.accounts.filter((a) => !ids || ids.includes(a.id)).flatMap((a) =>
     a.campaigns.map((cmp) => {
       const m = rep.perf.byCampaign[cmp.id];
       return {
@@ -477,12 +479,16 @@ export function campaignRows(rep: ClientReport): CampaignRow[] {
         clicks: m?.clicks ?? 0,
         conversions: m?.conversions ?? 0,
         conversionValueMinor: m?.conversionValueMinor ?? 0,
+        impressions: m?.impressions ?? 0,
+        leads: m?.leads ?? 0,
+        accountId: a.id,
+        accountName: a.name,
       };
     }),
   );
 }
 
-export function CampaignsSection({ rep, staff, basePath, marker }: { rep: ClientReport; staff: boolean; basePath: string; marker?: ReactNode }) {
+export function CampaignsSection({ rep, staff, basePath, marker, detail, description }: { rep: ClientReport; staff: boolean; basePath: string; marker?: ReactNode; detail?: { clientId: string; params: ReportParams }; description?: string }) {
   const { preset, range } = rep;
   return (
     <Card>
@@ -491,24 +497,24 @@ export function CampaignsSection({ rep, staff, basePath, marker }: { rep: Client
           <div className="flex flex-wrap items-center gap-2"><CardTitle>Campaigns</CardTitle>{marker}</div>
           {staff && <Link href={`${basePath}/campaigns?range=${preset}&from=${range.from}&to=${range.to}`} className="text-sm font-medium text-brand-text hover:underline">Add or remove campaigns</Link>}
         </div>
-        <CardDescription>{PRESET_LABEL[preset]} · sorted by spend. Click a column to re-sort.</CardDescription>
+        <CardDescription>{description ?? `${PRESET_LABEL[preset]} · sorted by spend. Click a column to re-sort.`}</CardDescription>
       </CardHeader>
-      <CampaignTable rows={campaignRows(rep)} currency={rep.client.currency} />
+      <CampaignTable rows={campaignRows(rep)} currency={rep.client.currency} detail={detail} />
       <div className="h-4" />
     </Card>
   );
 }
 
-export function HistorySection({ rep, marker, hideEmpty = false }: { rep: ClientReport; marker?: ReactNode; hideEmpty?: boolean }) {
+/**
+ * Previous months: budget, actual spend, variance and the final result. `bare`
+ * drops the card and heading (inside the Budgets tab's "View budget history").
+ */
+export function HistorySection({ rep, marker, hideEmpty = false, bare = false }: { rep: ClientReport; marker?: ReactNode; hideEmpty?: boolean; bare?: boolean }) {
   const c = rep.client.currency;
   const rows = hideEmpty ? rep.history.filter((h) => h.total) : rep.history;
-  if (rows.length === 0) return null;
-  return (
-    <Card>
-      <CardHeader>
-        <div className="flex flex-wrap items-center gap-2"><CardTitle>Historical budget performance</CardTitle>{marker}</div>
-        <CardDescription>Final spend against budget for previous months.</CardDescription>
-      </CardHeader>
+  if (rows.length === 0) return bare ? <p className="text-sm text-text-3">No budgets were set for previous months yet.</p> : null;
+  const body = (
+    <>
       {/* Phones: one card per month. */}
       <ul className="flex flex-col gap-2 px-3 md:hidden" aria-label="Previous months">
         {rows.map((h) => {
@@ -533,7 +539,7 @@ export function HistorySection({ rep, marker, hideEmpty = false }: { rep: Client
       <div className="hidden md:block">
       <Table>
         <THead>
-          <tr><TH className="pl-5">Period</TH><TH className="text-right">Budget</TH><TH className="text-right">Spent</TH><TH className="text-right">Variance</TH><TH className="text-right">Budget used</TH><TH className="pr-5">Result</TH></tr>
+          <tr><TH className="pl-5">Month</TH><TH className="text-right">Budget</TH><TH className="text-right">Actual spend</TH><TH className="text-right">Variance</TH><TH className="text-right">Budget used</TH><TH className="pr-5">Final status</TH></tr>
         </THead>
         <TBody>
           {rows.map((h) => {
@@ -552,6 +558,16 @@ export function HistorySection({ rep, marker, hideEmpty = false }: { rep: Client
         </TBody>
       </Table>
       </div>
+    </>
+  );
+  if (bare) return <div className="-mx-4 -mb-4">{body}</div>;
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex flex-wrap items-center gap-2"><CardTitle>Historical budget performance</CardTitle>{marker}</div>
+        <CardDescription>Final spend against budget for previous months.</CardDescription>
+      </CardHeader>
+      {body}
       <div className="h-4" />
     </Card>
   );

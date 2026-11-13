@@ -1,55 +1,25 @@
 "use client";
 
-import { useEffect, useId, useState, useTransition, type ReactNode } from "react";
+import { useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronDown, RefreshCw, Sparkles } from "lucide-react";
+import { RefreshCw, Sparkles } from "lucide-react";
+import { CollapsibleSection } from "@/components/ui/collapsible-section";
 import { regenerateSummaryAction } from "@/app/(app)/clients/[id]/summary-actions";
 import type { ReportParams } from "@/server/client-report";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 
-const KEY = "mn:disclosure:ai-executive-summary";
-
 /**
  * The Report tab's AI Executive Summary: a permanent section above the
- * widgets (not a widget), open by default; each viewer's open/closed choice is
- * remembered in this browser. The summary itself (with its approval, copy and
- * visibility controls) is rendered on the server and passed in.
+ * widgets (not a widget), open by default; each viewer's choice is remembered.
+ * The summary itself (with its approval, copy and visibility controls) is
+ * rendered on the server and passed in.
  */
 export function AiSummarySection({ title, marker, actions, children }: { title: string; marker?: ReactNode; actions?: ReactNode; children: ReactNode }) {
-  const [open, setOpen] = useState(true);
-  const id = useId();
-  useEffect(() => {
-    try {
-      if (window.localStorage.getItem(KEY) === "closed") setOpen(false);
-    } catch {
-      // Storage blocked: stays open.
-    }
-  }, []);
-  const toggle = () =>
-    setOpen((o) => {
-      try {
-        window.localStorage.setItem(KEY, o ? "closed" : "open");
-      } catch {
-        // Not remembered; still toggles.
-      }
-      return !o;
-    });
   return (
-    <section aria-label={title} className="rounded-xl border border-border bg-surface">
-      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 px-4 py-2.5">
-        <button type="button" onClick={toggle} aria-expanded={open} aria-controls={id} className="flex min-w-0 cursor-pointer items-center gap-2 rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring">
-          <Sparkles className="h-4 w-4 shrink-0 text-brand-text" aria-hidden />
-          <h2 className="text-sm font-semibold">{title}</h2>
-          <ChevronDown className={cn("h-4 w-4 shrink-0 text-text-3 transition-transform motion-reduce:transition-none", !open && "-rotate-90")} aria-hidden />
-        </button>
-        {marker}
-        {open && actions && <div className="ml-auto flex flex-wrap items-center gap-2">{actions}</div>}
-      </div>
-      <div id={id} hidden={!open} className="border-t border-border px-4 pt-3 pb-4">
-        {children}
-      </div>
-    </section>
+    <CollapsibleSection storageKey="ai-executive-summary" title={title} icon={<Sparkles className="h-4 w-4 shrink-0 text-brand-text" aria-hidden />} marker={marker} actions={actions}>
+      {children}
+    </CollapsibleSection>
   );
 }
 

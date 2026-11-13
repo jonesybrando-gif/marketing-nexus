@@ -58,13 +58,22 @@ describe("email-ready summary", () => {
 
   it("formats plain text with headings, bullets and numbers, skipping empty sections", async () => {
     const { summaryAsText } = await import("../exec-summary");
-    expect(summaryAsText(s, "ABC: summary")).toBe("ABC: summary\n\nPara one.\n\nPara <two> & more.\n\nWhat's working\n• Search did well.\n\nRecommendations\n1. Move budget.\n2. Fix tracking.");
+    expect(summaryAsText(s, "ABC: summary")).toBe("ABC: summary\n\nPerformance overview\nPara one.\n\nPara <two> & more.\n\nWhat the data tells us\n• Search did well.\n\nRecommended next steps\n1. Move budget.\n2. Fix tracking.");
   });
 
   it("swaps recommendations for what we're doing next in client-facing copies, or leaves them out", async () => {
     const { summaryAsText } = await import("../exec-summary");
-    expect(summaryAsText({ ...s, nextSteps: ["We'll move budget."] }, "ABC: summary", { clientFacing: true })).toBe("ABC: summary\n\nPara one.\n\nPara <two> & more.\n\nWhat's working\n• Search did well.\n\nWhat we're doing next\n• We'll move budget.");
-    expect(summaryAsText({ ...s, nextSteps: [] }, "ABC: summary", { clientFacing: true })).not.toMatch(/Recommendations|doing next/);
+    expect(summaryAsText({ ...s, nextSteps: ["We'll move budget."] }, "ABC: summary", { clientFacing: true })).toBe("ABC: summary\n\nPerformance overview\nPara one.\n\nPara <two> & more.\n\nWhat the data tells us\n• Search did well.\n\nWhat we're doing next\n• We'll move budget.");
+    expect(summaryAsText({ ...s, nextSteps: [] }, "ABC: summary", { clientFacing: true })).not.toMatch(/Recommended|doing next/);
+  });
+
+  it("outlines the summary as what the data tells us (good and bad interleaved) and next steps", async () => {
+    const { summaryOutline } = await import("../exec-summary");
+    const out = summaryOutline({ ...s, working: ["A", "B"], notWorking: ["X"] }, false);
+    expect(out.map((x) => x.title)).toEqual(["What the data tells us", "Recommended next steps"]);
+    expect(out[0].items).toEqual(["A", "X", "B"]);
+    expect(out[1].numbered).toBe(true);
+    expect(summaryOutline({ ...s, working: [], recommendations: [] }, false)).toEqual([]);
   });
 
   it("formats escaped, inline-styled HTML for email clients", async () => {

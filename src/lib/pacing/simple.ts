@@ -37,6 +37,8 @@ export interface SimpleRow {
   clientName: string;
   /** Platforms behind the row. More than one only for a combined client budget. */
   platforms: PlatformKey[];
+  /** Ad accounts behind the row (names shown on a client's Budgets tab). */
+  accountIds?: string[];
   currency: string;
   /** null = no budget set for this client/platform and month. */
   budgetMinor: number | null;
@@ -233,6 +235,7 @@ export function buildSimpleRows(lines: LineInput[], monthFraction: (clientId: st
       clientId: first.clientId,
       clientName: first.clientName,
       platforms: [...new Set(group.flatMap((l) => l.platforms))],
+      accountIds: [...new Set(counted.flatMap((l) => l.accountIds))],
       currency: first.currency,
       budgetMinor,
       spendMinor,

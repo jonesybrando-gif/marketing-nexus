@@ -51,6 +51,8 @@ export interface AiContextInput {
   /** Final budget result when the reporting period is exactly a past budget month. */
   pastBudget?: { month: string; budgetMinor: number; spentMinor: number; status: PacingStatus } | null;
   notes: string[];
+  /** Dated notes the agency logged (budget changes, launches, tracking fixes), within or near the period. */
+  events?: { date: string; text: string }[];
   /** What the client wants from advertising; null/undefined = guessed from the data. */
   goal?: ClientGoal | null;
   /** The client's local today (for "So far in October"); defaults to the day after the range. */
@@ -190,6 +192,10 @@ export function buildAiContext(i: AiContextInput): string {
   if (i.notes.length) {
     lines.push("", "## Data notes");
     for (const n of i.notes) lines.push(`- ${n}`);
+  }
+  if (i.events?.length) {
+    lines.push("", "## Notes the agency logged (dated events; a change near one of these dates may be connected, but the note alone doesn't prove it)");
+    for (const e of i.events) lines.push(`- ${e.date}: ${e.text}`);
   }
   if (i.web) {
     const w = i.web;

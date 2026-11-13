@@ -85,6 +85,11 @@ export function contextInput(rep: ClientReport): AiContextInput {
       ? { month: formatDate(past.period.start, { month: "long", year: "numeric" }), budgetMinor: past.total.budgetMinor, spentMinor: past.total.actualToDateMinor, status: past.total.status }
       : null,
     notes: [...new Set([...pacing.rows, ...pacing.subRows].flatMap((r) => r.warnings))],
+    // Dated chart notes in the reporting period (and the comparison period, for before/after context).
+    events: (rep.notes ?? [])
+      .filter((n) => (n.date >= rep.range.from && n.date <= rep.range.to) || (rep.cmpRange && n.date >= rep.cmpRange.from && n.date <= rep.cmpRange.to))
+      .slice(-20)
+      .map((n) => ({ date: n.date, text: n.text })),
     goal: client.goal,
     today: rep.today,
     stillCounting: stillCounting(rep.range.to, rep.today),
