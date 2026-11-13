@@ -67,7 +67,7 @@ const FAQ: { q: string; a: React.ReactNode }[] = [
 
 export default async function HomePage() {
   const user = await getCurrentUser();
-  if (user) redirect(user.role === "CLIENT_USER" && user.clientId ? `/clients/${user.clientId}` : "/dashboard");
+  if (user) redirect(user.role === "CLIENT_USER" && user.clientId ? `/clients/${user.clientId}` : "/clients");
   // CTA label test: a returning visitor keeps their variant; new visitors are split 50/50.
   const saved = (await cookies()).get(CTA_COOKIE)?.value;
   const variant: CtaVariant = isCtaVariant(saved) ? saved : Math.random() < 0.5 ? "benefit" : "plain";

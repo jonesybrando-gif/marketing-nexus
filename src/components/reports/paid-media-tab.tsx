@@ -18,7 +18,7 @@ const TREND_METRICS: KpiKey[] = ["spend", "conversions", "costPerConversion", "c
  * three headline figures, the campaign table, and Performance Trends (closed
  * by default) with dated annotations.
  */
-export function PaidMediaTab({ rep, basePath, params, annotations }: { rep: ClientReport; basePath: string; params: ReportParams; annotations: ReactNode }) {
+export function PaidMediaTab({ rep, basePath, params, annotations, staff = true }: { rep: ClientReport; basePath: string; params: ReportParams; annotations: ReactNode; staff?: boolean }) {
   const scope = rep.accountScope;
   const c = rep.client.currency;
   const prev = rep.cmpPerf?.totals ?? null;
@@ -44,7 +44,7 @@ export function PaidMediaTab({ rep, basePath, params, annotations }: { rep: Clie
 
       <CampaignsSection
         rep={rep}
-        staff
+        staff={staff}
         basePath={basePath}
         detail={{ clientId: rep.client.id, params: detailParams }}
         description="Sorted by spend. Click a campaign for its details and history; use Columns for more figures."
@@ -61,7 +61,7 @@ export function PaidMediaTab({ rep, basePath, params, annotations }: { rep: Clie
           {noActivity(rep) ? (
             <p className="py-6 text-center text-sm text-text-3">No activity in this period, so there is nothing to chart yet.</p>
           ) : (
-            <TrendChart current={rep.perf.byDate} comparison={rep.cmpPerf?.byDate ?? null} currency={c} metrics={TREND_METRICS} notes={notesFor(rep, true)} />
+            <TrendChart current={rep.perf.byDate} comparison={rep.cmpPerf?.byDate ?? null} currency={c} metrics={TREND_METRICS} notes={notesFor(rep, staff)} />
           )}
           {annotations}
         </div>

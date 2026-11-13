@@ -21,6 +21,9 @@ import { CombinedView } from "./combined-view";
 import { ClientDirectory, type DirectoryClient } from "./client-directory";
 import { CLIENTS_VIEW_COOKIE, parseLayout } from "@/lib/client-directory";
 import type { SessionUser } from "@/lib/access";
+import { setupChecklist } from "@/server/first-run";
+import { SetupChecklist } from "@/components/setup-checklist";
+import { BudgetRolloverBanner } from "@/components/dashboard/budget-rollover-banner";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Clients" };
@@ -119,10 +122,11 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
 /** The directory: every client the user can see, A–Z, with a logo when there is one. */
 async function Directory({ user, openNew }: { user: SessionUser; openNew: boolean }) {
   const admin = user.role === "AGENCY_ADMIN";
-  const [clients, managers, jar] = await Promise.all([
+  const [clients, managers, jar, checklist] = await Promise.all([
     prisma.client.findMany({ where: visibleClientsWhere(user), select: { id: true, name: true }, orderBy: { name: "asc" } }),
     admin ? prisma.user.findMany({ where: { agencyId: user.agencyId, role: "ACCOUNT_MANAGER" }, select: { id: true, name: true }, orderBy: { name: "asc" } }) : Promise.resolve([]),
     cookies(),
+    admin ? setupChecklist(user.agencyId).catch(() => null) : Promise.resolve(null),
   ]);
   // Only a fingerprint of each logo: the images load from /api/clients/[id]/logo, cached by version.
   const versions = clients.length
@@ -134,9 +138,17 @@ async function Directory({ user, openNew }: { user: SessionUser; openNew: boolea
     .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
   return (
     <div className="mx-auto flex max-w-[1400px] flex-col gap-5">
-      <header>
+      <header className="flex flex-wrap items-end justify-between gap-2">
         <h1 className="text-2xl font-semibold tracking-tight">Clients</h1>
+        <Link href="/dashboard" className="text-sm font-medium text-brand-text hover:underline">Agency overview</Link>
       </header>
+      {/* Agency-wide notices that used to sit on Home: next month's budgets and first-run setup. */}
+      <div className="flex flex-col gap-3 empty:hidden">
+        <Suspense fallback={null}>
+          <BudgetRolloverBanner user={user} />
+        </Suspense>
+        {checklist && !checklist.dismissed && <SetupChecklist steps={checklist.steps} compact />}
+      </div>
       <ClientDirectory
         clients={rows}
         initialLayout={parseLayout(jar.get(CLIENTS_VIEW_COOKIE)?.value)}

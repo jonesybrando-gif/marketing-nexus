@@ -37,7 +37,7 @@ export async function login(_prev: { error?: string } | undefined, form: FormDat
   await recordSuccessfulSignIn(email, ip);
   await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
   await createSession(user.id);
-  redirect(user.role === "CLIENT_USER" && user.clientId ? `/clients/${user.clientId}` : "/dashboard");
+  redirect(user.role === "CLIENT_USER" && user.clientId ? `/clients/${user.clientId}` : "/clients");
 }
 
 export async function logout() {

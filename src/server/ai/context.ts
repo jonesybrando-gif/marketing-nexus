@@ -1,3 +1,4 @@
+import { linkedSources } from "@/server/dashboards/sources";
 import { displayCampaignName } from "@/lib/campaign-name";
 import { isAccountDisconnected, isAccountRetired } from "@/lib/account-health";
 import "server-only";
@@ -19,7 +20,8 @@ export function contextForReport(rep: ClientReport): string {
  * organic search and keyword-rank data for the same period, when connected.
  */
 export async function aiContextForReport(rep: ClientReport): Promise<string> {
-  const web = await webContextFor(rep.client.id, rep.client.currency, rep.range, rep.cmpRange).catch(() => null);
+  const callrail = await linkedSources(rep.client.id).then((l) => l.includes("callrail")).catch(() => false);
+  const web = await webContextFor(rep.client.id, rep.client.currency, rep.range, rep.cmpRange, { callrail, callsFromAds: rep.callsFromAds ?? null }).catch(() => null);
   return buildAiContext({ ...contextInput(rep), web });
 }
 

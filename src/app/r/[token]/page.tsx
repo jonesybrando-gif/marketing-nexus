@@ -47,7 +47,7 @@ export default async function SharedReportPage({ params, searchParams }: { param
   }
   const [rep, agency] = await Promise.all([
     loadClientReport(link.clientId, { range: link.range ?? undefined, compare: link.compare ?? undefined }),
-    prisma.agency.findUniqueOrThrow({ where: { id: link.client.agencyId }, select: { brandColor: true, reportHeader: true, reportFooter: true } }),
+    prisma.agency.findUniqueOrThrow({ where: { id: link.client.agencyId }, select: { name: true, logoUrl: true, brandColor: true, reportHeader: true, reportFooter: true } }),
   ]);
   await recordShareView(link.id);
   const { client, preset, range, cmpRange, template } = rep;
@@ -57,7 +57,16 @@ export default async function SharedReportPage({ params, searchParams }: { param
     <div className="min-h-screen" style={brandStyle(agency.brandColor)}>
       <div className="h-1.5 bg-brand" />
       <main className="mx-auto flex max-w-[1400px] flex-col gap-6 px-4 py-6 md:px-6 md:py-8">
-        {/* The client's own logo and name lead; the agency's branding stays off client-facing reports. */}
+        {/* The reporting provider (the agency's white-label logo or name), then the client's own logo and name. */}
+        <p className="-mb-2 flex items-center gap-2 text-xs text-text-3">
+          <span>Report by</span>
+          {agency.logoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={agency.logoUrl} alt={agency.name} className="h-5 max-w-[8rem] object-contain" />
+          ) : (
+            <span className="font-medium text-text-2">{agency.name}</span>
+          )}
+        </p>
         <ClientReportHeader
           name={client.name}
           logoUrl={client.logoUrl}
