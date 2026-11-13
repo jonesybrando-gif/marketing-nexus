@@ -87,3 +87,24 @@ describe("three-question summary", () => {
     expect(out.recommendations).toHaveLength(3);
   });
 });
+
+describe("by channel", () => {
+  it("gives one plain update per ad platform from the figures", async () => {
+    const { autoChannelUpdates, summaryOutline, summaryAsText } = await import("../exec-summary");
+    const ch = autoChannelUpdates({
+      ...base,
+      accounts: [
+        { platform: "Google Ads", name: "G", totals: t({ costMinor: 300000, conversions: 30, clicks: 400 }), previousTotals: t({ costMinor: 280000, conversions: 20, clicks: 380 }), spendVerified: true, dataNote: null },
+        { platform: "Google LSA", name: "L", totals: t({ costMinor: 100000, leads: 12, conversions: 8, clicks: 0 }), previousTotals: null, spendVerified: true, dataNote: null },
+        { platform: "Meta Ads", name: "M", totals: null, spendVerified: true, dataNote: null },
+      ],
+    });
+    expect(ch.map((c) => c.channel)).toEqual(["Google Ads", "Local Services Ads", "Meta Ads"]);
+    expect(ch[0].update).toBe("$3,000 spent, 30 results at about $100.00 each. That's more results than the previous period (20 before).");
+    expect(ch[1].update).toContain("12 leads");
+    expect(ch[2].update).toBe("No figures were reported for this period yet.");
+    const s = { takeaway: "T.", happened: "H.", channels: ch.slice(0, 1), meaning: "M.", recommendations: [], nextSteps: [] };
+    expect(summaryOutline(s, false).map((x) => x.title)).toEqual(["What happened?", "By channel", "What does this mean?"]);
+    expect(summaryAsText(s, "Head")).toContain("By channel\nGoogle Ads: $3,000 spent");
+  });
+});

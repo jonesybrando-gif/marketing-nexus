@@ -6,6 +6,7 @@ import { SummaryEditor } from "./summary-editor";
 import { SummaryExpander } from "./ai-summary-section";
 import { formatDate } from "@/lib/time";
 import { clientNextStepLines } from "@/server/next-steps";
+import { summaryChannels } from "@/server/ai/context";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CopySummaryButton } from "./copy-summary-button";
 import { RefreshWhenReady } from "./refresh-when-ready";
@@ -21,6 +22,16 @@ function Sections({ summary, clientFacing }: { summary: ExecSummary; clientFacin
         <section key={sec.title}>
           <h3 className="mb-1 text-sm font-semibold">{sec.title}</h3>
           {sec.text && <p>{sec.text}</p>}
+          {sec.labelled && (
+            <dl className="flex flex-col gap-2">
+              {sec.labelled.map((l) => (
+                <div key={l.label} className="grid gap-x-3 sm:grid-cols-[11rem_minmax(0,1fr)]">
+                  <dt className="text-sm font-semibold text-text-2 sm:pt-0.5">{l.label}</dt>
+                  <dd>{l.text}</dd>
+                </div>
+              ))}
+            </dl>
+          )}
           {sec.items.length > 0 && (
             <ol className="flex list-decimal flex-col gap-1 pl-5">
               {sec.items.map((x, i) => <li key={i} className="pl-1">{x}</li>)}
@@ -115,7 +126,7 @@ export async function ExecutiveSummary({ rep, marker, copyable = false, compact 
     <>
       {copyable && !clientFacing && !pending ? (
         // Staff who see the copy controls can also edit the wording and add their own updates.
-        <SummaryEditor clientId={rep.client.id} params={reportParams(rep)} insightId={insightId ?? null} summary={summary} approved={!!approved}>
+        <SummaryEditor clientId={rep.client.id} params={reportParams(rep)} insightId={insightId ?? null} summary={summary} approved={!!approved} channelNames={await summaryChannels(rep).catch(() => [])}>
           <SummaryText summary={summary} heading={heading} copyable={copyable} compact={compact} clientFacing={false} pending={pending} />
         </SummaryEditor>
       ) : (
