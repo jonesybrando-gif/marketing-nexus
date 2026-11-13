@@ -68,7 +68,7 @@ async function CallRailContent({ clientId, currency, today, range, cmpRange, com
         note={
           <>
             CallRail · {companies.map((c) => c.name).join(", ")} · {through ? `through ${short(through)}` : "not synced yet"} ({short(range.from)}–{short(range.to)}
-            {cmpRange ? `, vs ${short(cmpRange.from)}–${short(cmpRange.to)}` : ""}). &ldquo;Leads&rdquo; are calls marked as a good lead in CallRail; other calls aren&apos;t counted as leads. Ad platforms may also count some of these calls as conversions, so don&apos;t add the two together.
+            {cmpRange ? `, vs ${short(cmpRange.from)}–${short(cmpRange.to)}` : ""}). &ldquo;Qualified calls&rdquo; are calls marked as a good lead in CallRail; other calls aren&apos;t counted as leads. Ad platforms may also count some of these calls as conversions, so don&apos;t add the two together.
           </>
         }
       >
