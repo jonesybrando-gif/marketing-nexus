@@ -5,6 +5,7 @@ import { linkedSources } from "@/server/dashboards/sources";
 import { readWidgets } from "@/lib/dashboards/parse";
 import type { DashboardWidget } from "@/lib/dashboards/types";
 import type { MetricSource } from "@/lib/metrics-registry";
+import type { PlatformKey } from "@/lib/platforms";
 import { CampaignsSection, PacingSection } from "@/components/reports/report-sections";
 import { DashboardGrid } from "./dashboard-grid";
 import type { AdSlots } from "./widget-view";
@@ -17,11 +18,11 @@ export interface SlotOptions {
 }
 
 /** The existing pacing and campaign sections, rendered once for any widgets that show them. */
-export function adSlots({ rep, staff, basePath, query }: SlotOptions, widgets: Pick<DashboardWidget, "kind">[] | "all"): AdSlots {
+export function adSlots({ rep, staff, basePath, query }: SlotOptions, widgets: Pick<DashboardWidget, "kind">[] | "all", platform?: PlatformKey): AdSlots {
   const has = (k: DashboardWidget["kind"]) => widgets === "all" || widgets.some((w) => w.kind === k);
   return {
     pacing: has("pacing") ? <PacingSection rep={rep} staff={staff} basePath={basePath} query={query} showLines={false} /> : undefined,
-    campaigns: has("campaigns") ? <CampaignsSection rep={rep} staff={staff} basePath={basePath} /> : undefined,
+    campaigns: has("campaigns") ? <CampaignsSection rep={rep} staff={staff} basePath={basePath} platform={platform} /> : undefined,
   };
 }
 

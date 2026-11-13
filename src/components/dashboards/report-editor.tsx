@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from
 import { useRouter } from "next/navigation";
 import { ArrowDown, ArrowUp, BarChart3, ChevronDown, Hash, MoreHorizontal, Plus, RotateCcw, Trash2 } from "lucide-react";
 import type { MetricSource } from "@/lib/metrics-registry";
+import type { PlatformKey } from "@/lib/platforms";
 import type { DashboardWidget } from "@/lib/dashboards/types";
 import type { DashboardData } from "@/lib/dashboards/widget-data";
 import { MAX_WIDGETS, parseWidgets } from "@/lib/dashboards/parse";
@@ -19,7 +20,7 @@ import { EditableGrid } from "./editable-grid";
 import { sameWidget } from "./dashboard-editor";
 
 /** The library tab that matches a section (its main data source). */
-const TAB_OF: Record<SectionType, LibraryTab> = { ads: "ads", callrail: "callrail", seo: "gsc", ga4: "ga4", pacing: "ads" };
+const TAB_OF: Record<SectionType, LibraryTab> = { google_ads: "ads", meta_ads: "ads", microsoft_ads: "ads", lsa: "ads", ads: "ads", callrail: "callrail", seo: "gsc", ga4: "ga4", pacing: "ads" };
 
 type Target = { sectionId: string; kind: "kpi" | "line" } | null;
 
@@ -40,6 +41,7 @@ export function ReportEditor({
   rangeParams,
   doneHref,
   saveAction,
+  slotsByPlatform = {},
 }: {
   layout: ReportLayout;
   defaults: ReportLayout;
@@ -51,6 +53,8 @@ export function ReportEditor({
   rangeParams: { range?: string; compare?: string; from?: string; to?: string };
   doneHref: string;
   saveAction: (layout: ReportLayout) => Promise<DashboardResult>;
+  /** Campaign tables limited to one platform, for Google Ads / Meta Ads… sections. */
+  slotsByPlatform?: Partial<Record<PlatformKey, AdSlots>>;
 }) {
   const router = useRouter();
   const [layout, setLayout] = useState(initial);
@@ -71,7 +75,7 @@ export function ReportEditor({
   const initialWidgets = useMemo(() => allWidgets(initial), [initial]);
 
   const preview = useCallback(
-    (w: DashboardWidget) => {
+    (w: DashboardWidget, platform?: PlatformKey) => {
       if (w.kind === "text") return setData((d) => ({ ...d, [w.id]: { kind: "text" } }));
       if (w.kind === "pacing" || w.kind === "campaigns") {
         const kind = w.kind;
@@ -82,7 +86,7 @@ export function ReportEditor({
         delete n[w.id];
         return n;
       });
-      previewWidgetAction(clientId, w, rangeParams)
+      previewWidgetAction(clientId, w, rangeParams, platform)
         .then((res) => setData((d) => ({ ...d, [w.id]: res })))
         .catch(() => setData((d) => ({ ...d, [w.id]: { kind: "empty", reason: "no_data", source: null, message: "Preview unavailable. It will load after saving." } })));
     },
@@ -96,7 +100,7 @@ export function ReportEditor({
     if (firstRange.current === rangeKey) return;
     firstRange.current = rangeKey;
     setData(initialData);
-    for (const w of allWidgets(layout)) if (!sameWidget(initialWidgets.find((s) => s.id === w.id), w)) preview(w);
+    for (const s of layout.sections) for (const w of s.widgets) if (!sameWidget(initialWidgets.find((x) => x.id === w.id), w)) preview(w, SECTION_TYPE[s.type].platform);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rangeKey]);
 
@@ -184,7 +188,7 @@ export function ReportEditor({
     const s = newSection(type, layout.sections, linked);
     if (total + s.widgets.length > MAX_WIDGETS) return setError(`A report can have up to ${MAX_WIDGETS} widgets. Remove some first.`);
     setLayout((l) => ({ ...l, sections: [...l.sections, s], removed: l.removed.filter((t) => t !== type) }));
-    s.widgets.forEach(preview);
+    s.widgets.forEach((w) => preview(w, SECTION_TYPE[type].platform));
     setAddOpen(false);
     setError(null);
     setAnnounce(`${s.title} section added at the end.`);
@@ -210,7 +214,7 @@ export function ReportEditor({
     }
     if (!added.length) return;
     setSection(section.id, (s) => ({ ...s, widgets: next }));
-    added.forEach(preview);
+    added.forEach((w) => preview(w, SECTION_TYPE[section.type].platform));
     setError(null);
     setAnnounce(`${added.length} widget${added.length === 1 ? "" : "s"} added to ${section.title}.`);
     requestAnimationFrame(() => document.getElementById(`widget-${added[0].id}`)?.scrollIntoView({ behavior: "smooth", block: "nearest" }));
@@ -219,7 +223,7 @@ export function ReportEditor({
   const reset = () => {
     setLayout(defaults);
     setError(null);
-    for (const w of allWidgets(defaults)) if (!sameWidget(initialWidgets.find((s) => s.id === w.id), w)) preview(w);
+    for (const s of defaults.sections) for (const w of s.widgets) if (!sameWidget(initialWidgets.find((x) => x.id === w.id), w)) preview(w, SECTION_TYPE[s.type].platform);
     setAnnounce("Report reset to the default sections. Save Changes to keep it.");
   };
 
@@ -294,7 +298,10 @@ export function ReportEditor({
             <label htmlFor={`title-${s.id}`} className="sr-only">Section title</label>
             <Input id={`title-${s.id}`} value={s.title} maxLength={80} onChange={(e) => setSection(s.id, (x) => ({ ...x, title: e.target.value }))} className="h-8 max-w-xs font-semibold" />
             <span className="text-xs text-text-3">{SECTION_TYPE[s.type].title !== s.title ? SECTION_TYPE[s.type].title : ""}</span>
-            <label className="ml-auto flex items-center gap-1.5 text-xs text-text-2">
+            <Button type="button" variant="ghost" size="sm" onClick={() => removeSection(s.id)} className="ml-auto text-text-2 hover:text-critical-ink" aria-label={`Remove section: ${s.title}`}>
+              <Trash2 className="h-3.5 w-3.5" aria-hidden /> Remove Section
+            </Button>
+            <label className="flex items-center gap-1.5 text-xs text-text-2">
               <input type="checkbox" checked={!!s.collapsed} onChange={(e) => setSection(s.id, (x) => ({ ...x, collapsed: e.target.checked || undefined }))} />
               Start collapsed
             </label>
@@ -321,11 +328,11 @@ export function ReportEditor({
             <EditableGrid
               widgets={s.widgets}
               onChange={(ws) => setSection(s.id, (x) => ({ ...x, widgets: ws }))}
-              onWidgetChanged={preview}
+              onWidgetChanged={(w) => preview(w, SECTION_TYPE[s.type].platform)}
               onAnnounce={setAnnounce}
               data={data}
               currency={currency}
-              slots={slots}
+              slots={(SECTION_TYPE[s.type].platform && slotsByPlatform[SECTION_TYPE[s.type].platform!]) || slots}
               clientId={clientId}
               linked={linked}
               minRows={1}
@@ -333,6 +340,11 @@ export function ReportEditor({
           )}
         </section>
       ))}
+      {layout.sections.length > 0 && (
+        <button type="button" data-report-menu onClick={() => { setAddOpen(true); setConfirmDup(null); window.scrollTo({ top: 0, behavior: "smooth" }); }} className="flex cursor-pointer items-center justify-center gap-1.5 rounded-xl border border-dashed border-border px-4 py-3 text-sm font-medium text-text-2 hover:bg-surface hover:text-text">
+          <Plus className="h-4 w-4" aria-hidden /> Add Section
+        </button>
+      )}
       <p className="sr-only" aria-live="polite">{announce}</p>
 
       {targetSection && (
