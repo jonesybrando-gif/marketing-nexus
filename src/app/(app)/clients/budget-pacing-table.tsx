@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useId, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
+import { Fragment, useEffect, useId, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import { AlertTriangle, ArrowDown, ArrowUp, Download } from "lucide-react";
 import { loadOnHover } from "@/lib/link-hover";
 import { formatMoney, parseMoneyToMinor } from "@/lib/money";
@@ -61,6 +61,7 @@ export function BudgetPacingTable({
   variant = "agency",
   accountNames = {},
   overview,
+  platformSpend = {},
 }: {
   rows: SimpleRow[];
   month: MonthOption;
@@ -74,10 +75,12 @@ export function BudgetPacingTable({
   accountNames?: Record<string, string>;
   /** Client variant: the month overview (cards and progress bar) above the table, in this currency. */
   overview?: { currency: string; rangeNote?: string | null };
+  /** Client variant: spend by platform under a budget shared by several platforms (row key → platforms). */
+  platformSpend?: Record<string, { platform: PlatformKey; spendMinor: number | null; share: number | null }[]>;
 }) {
   const single = variant === "client";
   /** Client variant: the accounts behind a row by name (platform underneath). */
-  const accountText = (r: SimpleRow) => (r.accountIds ?? []).map((id) => accountNames[id]).filter(Boolean).join(", ") || platformText(r);
+  const accountText = (r: SimpleRow) => (r.platforms.length > 1 && (platformSpend[r.key]?.length ?? 0) > 1 ? "Combined budget" : (r.accountIds ?? []).map((id) => accountNames[id]).filter(Boolean).join(", ") || platformText(r));
   const router = useRouter();
   const [navigating, startNav] = useTransition();
   const [rows, setRows] = useState(initialRows);
@@ -192,8 +195,8 @@ export function BudgetPacingTable({
       </div>
       )}
 
-      <div className={cn("overflow-x-auto rounded-xl border border-border bg-surface transition-opacity", navigating && "opacity-60")}>
-        <table className="w-full table-fixed text-[13px] tabular sm:min-w-[760px] sm:text-sm">
+      <div className={cn("rounded-xl border border-border bg-surface transition-opacity", single ? "overflow-visible" : "overflow-x-auto", navigating && "opacity-60")}>
+        <table className={cn("w-full table-fixed text-[13px] tabular sm:text-sm", !single && "sm:min-w-[760px]")}>
           <colgroup>
             <col />
             {!single && <col className="hidden w-[17%] sm:table-column" />}
@@ -217,8 +220,10 @@ export function BudgetPacingTable({
               const s = info(r);
               const left = budgetLeft(r);
               const adj = adjustment(r);
+              const parts = single ? platformSpend[r.key] ?? [] : [];
               return (
-                <tr key={r.key} className="hover:bg-surface-2/60">
+                <Fragment key={r.key}>
+                <tr className="hover:bg-surface-2/60">
                   <td className="py-2.5 pl-3 pr-1.5 sm:pl-5 sm:pr-3">
                     <div className="flex min-w-0 items-center gap-2 sm:gap-2.5">
                       <Tip text={s.message}>
@@ -273,6 +278,22 @@ export function BudgetPacingTable({
                     )}
                   </td>
                 </tr>
+                {parts.map((p) => (
+                  <tr key={p.platform} className="text-text-2">
+                    <td className="py-2 pl-3 pr-1.5 sm:pl-5 sm:pr-3">
+                      <span className="flex min-w-0 items-center gap-2 pl-6">
+                        <span aria-hidden className="text-text-3">↳</span>
+                        <span className="truncate">{PLATFORM_LABEL[p.platform]}</span>
+                        {p.share !== null && <span className="shrink-0 text-xs text-text-3">{Math.round(p.share * 100)}% of spend</span>}
+                      </span>
+                    </td>
+                    <td className="px-1.5 py-2 text-right text-xs whitespace-nowrap text-text-3 sm:px-3">Shared</td>
+                    <td className="px-1.5 py-2 text-right whitespace-nowrap sm:px-3">{p.spendMinor === null ? <span className="text-text-3" title="No spend data">—</span> : money(r)(p.spendMinor)}</td>
+                    <td className="py-2 pl-1.5 pr-3 sm:px-3" />
+                    <td className="hidden sm:table-cell" />
+                  </tr>
+                ))}
+                </Fragment>
               );
             })}
             {visible.length === 0 && (
