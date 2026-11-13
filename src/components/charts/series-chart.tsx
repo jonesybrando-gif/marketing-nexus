@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis, type TooltipProps } from "recharts";
+import { Area, AreaChart, Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis, type TooltipProps } from "recharts";
 import { formatMetric, type MetricInfo } from "@/lib/dashboards/metrics";
 import { formatDate } from "@/lib/time";
 import { isAdditiveMetric, summarizeSeries } from "@/lib/chart-summary";
@@ -27,7 +27,7 @@ export function SeriesChart({
   previous: Record<string, (number | null)[]> | null;
   previousDates: string[] | null;
   currency?: string;
-  type?: "line" | "bar";
+  type?: "line" | "bar" | "area";
 }) {
   const [selected, setSelected] = useState(metrics[0]?.key ?? "");
   const m = metrics.find((x) => x.key === selected) ?? metrics[0];
@@ -94,6 +94,13 @@ export function SeriesChart({
               {previous && <Bar dataKey="previous" fill="var(--series-planned)" fillOpacity={0.35} radius={[2, 2, 0, 0]} isAnimationActive={false} />}
               <Bar dataKey="current" fill="var(--series-actual)" radius={[2, 2, 0, 0]} isAnimationActive={false} />
             </BarChart>
+          ) : type === "area" ? (
+            <AreaChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+              {axes}
+              <Tooltip content={<Tip />} cursor={{ stroke: "var(--text-3)", strokeWidth: 1 }} />
+              {previous && <Line dataKey="previous" stroke="var(--series-planned)" strokeWidth={2} strokeDasharray="4 4" dot={false} isAnimationActive={false} connectNulls />}
+              <Area dataKey="current" stroke="var(--series-actual)" strokeWidth={2} fill="var(--series-actual)" fillOpacity={0.15} dot={false} activeDot={{ r: 4, strokeWidth: 2, stroke: "var(--surface)" }} isAnimationActive={false} connectNulls />
+            </AreaChart>
           ) : (
             <LineChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
               {axes}

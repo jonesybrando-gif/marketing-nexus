@@ -815,10 +815,17 @@ model Dashboard {
   position    Int      @default(0)
   defaultRange String  @default("last_30")
   widgets     Json     @default("[]")
+  /// "REPORT" = the client's Report tab (one per client); null = an extra custom dashboard or a template.
+  role        String?
+  /// Report template the layout started from (src/lib/dashboards/report-templates.ts).
+  templateKey String?
+  /// Format version of `widgets`, so stored layouts can be migrated when the widget format changes.
+  layoutVersion Int    @default(1)
   createdById String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  @@unique([clientId, role])
   @@index([agencyId, isTemplate])
   @@index([clientId, position])
 }

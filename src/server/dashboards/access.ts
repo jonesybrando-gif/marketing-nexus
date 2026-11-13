@@ -32,7 +32,8 @@ export async function loadDashboardFor(user: SessionUser, id: string, mode: "vie
  */
 export async function listClientDashboards(user: SessionUser, clientId: string) {
   return prisma.dashboard.findMany({
-    where: { clientId, agencyId: user.agencyId, isTemplate: false, ...(user.role === "CLIENT_USER" ? { clientVisible: true } : {}) },
+    // The Report tab's own dashboard (role REPORT) is shown as the Report, not in this list.
+    where: { clientId, agencyId: user.agencyId, isTemplate: false, role: null, ...(user.role === "CLIENT_USER" ? { clientVisible: true } : {}) },
     orderBy: [{ position: "asc" }, { createdAt: "asc" }],
   });
 }
@@ -40,7 +41,7 @@ export async function listClientDashboards(user: SessionUser, clientId: string) 
 /** Dashboards a shared report link may show: the link's client's client-visible ones only. */
 export async function sharedReportDashboards(clientId: string) {
   const rows = await prisma.dashboard.findMany({
-    where: { clientId, isTemplate: false, clientVisible: true },
+    where: { clientId, isTemplate: false, clientVisible: true, role: null },
     orderBy: [{ position: "asc" }, { createdAt: "asc" }],
   });
   return rows.filter((d) => sharedReportShows(d, clientId)); // belt and braces over the query

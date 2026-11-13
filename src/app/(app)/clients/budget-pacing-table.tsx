@@ -55,6 +55,7 @@ export function BudgetPacingTable({
   editable,
   labels = [],
   labelsByClient = {},
+  variant = "agency",
 }: {
   rows: SimpleRow[];
   month: MonthOption;
@@ -62,7 +63,10 @@ export function BudgetPacingTable({
   editable: Record<string, boolean>;
   labels?: { id: string; name: string }[];
   labelsByClient?: Record<string, string[]>;
+  /** "client": one client's rows on its Budgets tab — no toolbar, platform first, no client column. */
+  variant?: "agency" | "client";
 }) {
+  const single = variant === "client";
   const router = useRouter();
   const [navigating, startNav] = useTransition();
   const [rows, setRows] = useState(initialRows);
@@ -135,6 +139,7 @@ export function BudgetPacingTable({
 
   return (
     <div className="flex flex-col gap-3">
+      {!single && (
       <div className="flex flex-wrap items-center gap-2">
         <Input type="search" placeholder="Search clients" value={q} onChange={(e) => setQ(e.target.value)} className="w-full sm:w-56" aria-label="Search clients" />
         <Select value={platform} onChange={(e) => setPlatform(e.target.value as PlatformKey | "")} className="w-full sm:w-56" aria-label="Platform">
@@ -161,12 +166,13 @@ export function BudgetPacingTable({
           <Download className="h-4 w-4" aria-hidden /> Export CSV
         </Button>
       </div>
+      )}
 
       <div className={cn("overflow-x-auto rounded-xl border border-border bg-surface transition-opacity", navigating && "opacity-60")}>
         <table className="w-full table-fixed text-[13px] tabular sm:min-w-[760px] sm:text-sm">
           <colgroup>
             <col />
-            <col className="hidden w-[17%] sm:table-column" />
+            {!single && <col className="hidden w-[17%] sm:table-column" />}
             <col className="w-[21%] sm:w-[14%]" />
             <col className="w-[19%] sm:w-[13%]" />
             <col className="w-[19%] sm:w-[13%]" />
@@ -174,8 +180,8 @@ export function BudgetPacingTable({
           </colgroup>
           <thead className="border-b border-border">
             <tr>
-              {header("client", "Client")}
-              {header("platform", "Platform")}
+              {single ? header("platform", "Platform") : header("client", "Client")}
+              {!single && header("platform", "Platform")}
               {header("budget", "Monthly Budget", true, "Budget")}
               {header("used", "Budget Used", true, "Used")}
               {header("left", "Budget Left", true, "Left")}
@@ -197,13 +203,19 @@ export function BudgetPacingTable({
                         </span>
                       </Tip>
                       <div className="min-w-0">
-                        <Link {...loadOnHover} href={`/clients/${r.clientId}?tab=budgets`} className="block truncate font-medium text-text hover:underline" title={r.clientName}>{r.clientName}</Link>
-                        <span className="block truncate text-xs text-text-3 sm:hidden">{platformText(r)}</span>
+                        {single ? (
+                          <span className="block truncate font-medium text-text" title={platformText(r)}>{platformText(r)}</span>
+                        ) : (
+                          <>
+                            <Link {...loadOnHover} href={`/clients/${r.clientId}?tab=budgets`} className="block truncate font-medium text-text hover:underline" title={r.clientName}>{r.clientName}</Link>
+                            <span className="block truncate text-xs text-text-3 sm:hidden">{platformText(r)}</span>
+                          </>
+                        )}
                         {adj.kind !== "NONE" && <span className={cn("block truncate text-xs font-medium sm:hidden", ADJ_TEXT[adj.tone])}>{adj.label}</span>}
                       </div>
                     </div>
                   </td>
-                  <td className="hidden truncate px-3 py-2.5 whitespace-nowrap text-text-2 sm:table-cell" title={platformText(r)}>{platformText(r)}</td>
+                  {!single && <td className="hidden truncate px-3 py-2.5 whitespace-nowrap text-text-2 sm:table-cell" title={platformText(r)}>{platformText(r)}</td>}
                   <td className="px-1.5 py-2.5 text-right whitespace-nowrap sm:px-3">
                     <BudgetCell row={r} month={month.key} canEdit={!!editable[r.clientId]} onSaved={onSaved} />
                   </td>
@@ -230,7 +242,7 @@ export function BudgetPacingTable({
             })}
             {visible.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-5 py-10 text-center text-sm text-text-3">
+                <td colSpan={single ? 5 : 6} className="px-5 py-10 text-center text-sm text-text-3">
                   {rows.length === 0 ? `No budgets or ad spend for ${month.label}.` : "No clients match these filters."}
                 </td>
               </tr>

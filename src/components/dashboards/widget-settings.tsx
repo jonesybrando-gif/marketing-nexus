@@ -3,18 +3,25 @@
 import { useEffect, useRef, useState } from "react";
 import { Trash2, X } from "lucide-react";
 import { PRESET_LABEL, type RangePreset } from "@/lib/date-ranges";
-import { dimensionsFor, metricsFor, SOURCE_LABEL, sourceOf } from "@/lib/dashboards/metrics";
+import { dimensionsFor, metricsFor, SOURCE_LABEL, SOURCE_ORDER, sourceOf } from "@/lib/dashboards/metrics";
+import type { MetricSource } from "@/lib/metrics-registry";
 import { KIND_LABEL, widgetTitle } from "@/lib/dashboards/describe";
 import { GRID_COLS, METRIC_LIMITS, MIN_SIZE, parseWidgets } from "@/lib/dashboards/parse";
 import type { DashboardWidget, WidgetKind } from "@/lib/dashboards/types";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
 
-const METRIC_KINDS: WidgetKind[] = ["kpi", "line", "bar", "table", "pie"];
+const METRIC_KINDS: WidgetKind[] = ["kpi", "line", "area", "bar", "table", "pie"];
 const RANGES: RangePreset[] = ["mtd", "last_month", "last_7", "last_30", "last_90"];
 
-/** Per-widget settings: title, chart type, metrics, breakdown, date range (or text), and remove. */
-export function WidgetSettings({ widget, onApply, onRemove, onClose }: { widget: DashboardWidget; onApply: (w: DashboardWidget) => void; onRemove: () => void; onClose: () => void }) {
+/**
+ * Per-widget settings: title, data source, display style, metrics, breakdown,
+ * date range (or text), and remove. `linked` = the client's connected sources;
+ * the source list offers only those (plus the widget's current one), so a
+ * widget can switch to any metric the client actually has. Undefined (agency
+ * templates) offers every source.
+ */
+export function WidgetSettings({ widget, linked, onApply, onRemove, onClose }: { widget: DashboardWidget; linked?: MetricSource[]; onApply: (w: DashboardWidget) => void; onRemove: () => void; onClose: () => void }) {
   const [draft, setDraft] = useState<DashboardWidget>(widget);
   const [error, setError] = useState<string | null>(null);
   const [confirmRemove, setConfirmRemove] = useState(false);
@@ -26,6 +33,22 @@ export function WidgetSettings({ widget, onApply, onRemove, onClose }: { widget:
   const limit = METRIC_LIMITS[draft.kind];
   const needsDim = draft.kind === "table" || draft.kind === "pie";
   const allowsDim = needsDim || draft.kind === "bar";
+  const sources = SOURCE_ORDER.filter((s) => s !== "rank" && metricsFor(s).length > 0 && (!linked || linked.includes(s) || s === source));
+  const setSource = (s: MetricSource) => {
+    const first = metricsFor(s)[0]?.key;
+    if (!first) return;
+    const sDims = dimensionsFor(s);
+    // Keep the display style when the new source supports it; breakdown styles need a breakdown.
+    const kind = (draft.kind === "table" || draft.kind === "pie") && sDims.length === 0 ? "kpi" : draft.kind;
+    const min = MIN_SIZE[kind];
+    set({
+      kind,
+      metrics: [first],
+      w: Math.max(draft.w, min.w),
+      h: Math.max(draft.h, min.h),
+      dimension: kind === "table" || kind === "pie" ? sDims[0]?.dimension : undefined,
+    });
+  };
 
   useEffect(() => {
     ref.current?.querySelector<HTMLElement>("input, select, textarea")?.focus();
@@ -59,6 +82,7 @@ export function WidgetSettings({ widget, onApply, onRemove, onClose }: { widget:
     if (!candidate.dimension) delete candidate.dimension;
     if (!candidate.range) delete candidate.range;
     if (!candidate.title) delete candidate.title;
+    if (!candidate.hideChange || candidate.kind !== "kpi") delete candidate.hideChange;
     const r = parseWidgets([candidate]);
     if (!r.ok) return setError(r.error);
     onApply(r.widgets[0]);
@@ -83,9 +107,17 @@ export function WidgetSettings({ widget, onApply, onRemove, onClose }: { widget:
           <p className="text-xs text-text-3"># heading · - bullet · **bold**</p>
         </div>
       )}
+      {metricWidget && sources.length > 1 && (
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor={`s-${widget.id}`}>Data source</Label>
+          <Select id={`s-${widget.id}`} value={source ?? ""} onChange={(e) => setSource(e.target.value as MetricSource)}>
+            {sources.map((s) => <option key={s} value={s}>{SOURCE_LABEL[s]}</option>)}
+          </Select>
+        </div>
+      )}
       {metricWidget && (
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor={`k-${widget.id}`}>Chart type</Label>
+          <Label htmlFor={`k-${widget.id}`}>Display as</Label>
           <Select id={`k-${widget.id}`} value={draft.kind} onChange={(e) => setKind(e.target.value as WidgetKind)}>
             {METRIC_KINDS.filter((k) => dims.length > 0 || (k !== "table" && k !== "pie")).map((k) => <option key={k} value={k}>{KIND_LABEL[k]}</option>)}
           </Select>
@@ -103,6 +135,12 @@ export function WidgetSettings({ widget, onApply, onRemove, onClose }: { widget:
             ))}
           </div>
         </fieldset>
+      )}
+      {draft.kind === "kpi" && (
+        <label className="flex cursor-pointer items-center gap-2 text-sm">
+          <input type="checkbox" checked={!draft.hideChange} onChange={(e) => set({ hideChange: e.target.checked ? undefined : true })} />
+          Show change vs the comparison period
+        </label>
       )}
       {allowsDim && dims.length > 0 && (
         <div className="flex flex-col gap-1.5">

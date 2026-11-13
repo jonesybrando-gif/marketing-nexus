@@ -12,12 +12,13 @@ export const MAX_H = 16;
 export const MAX_TEXT = 5000;
 export const MAX_TITLE = 120;
 
-export const WIDGET_KINDS: WidgetKind[] = ["kpi", "line", "bar", "table", "pie", "rankings", "calllog", "formlog", "text", "pacing", "campaigns"];
+export const WIDGET_KINDS: WidgetKind[] = ["kpi", "line", "area", "bar", "table", "pie", "rankings", "calllog", "formlog", "text", "pacing", "campaigns"];
 
 /** Kinds that chart or tabulate metrics, and how many metrics each takes. */
 export const METRIC_LIMITS: Partial<Record<WidgetKind, { min: number; max: number }>> = {
   kpi: { min: 1, max: 1 },
   line: { min: 1, max: 3 },
+  area: { min: 1, max: 3 },
   bar: { min: 1, max: 3 },
   table: { min: 1, max: 6 },
   pie: { min: 1, max: 1 },
@@ -27,6 +28,7 @@ export const METRIC_LIMITS: Partial<Record<WidgetKind, { min: number; max: numbe
 export const MIN_SIZE: Record<WidgetKind, { w: number; h: number }> = {
   kpi: { w: 2, h: 2 },
   line: { w: 3, h: 3 },
+  area: { w: 3, h: 3 },
   bar: { w: 3, h: 3 },
   table: { w: 3, h: 3 },
   pie: { w: 3, h: 3 },
@@ -42,6 +44,7 @@ export const MIN_SIZE: Record<WidgetKind, { w: number; h: number }> = {
 export const DEFAULT_SIZE: Record<WidgetKind, { w: number; h: number }> = {
   kpi: { w: 2, h: 2 },
   line: { w: 6, h: 4 },
+  area: { w: 6, h: 4 },
   bar: { w: 6, h: 4 },
   table: { w: 6, h: 5 },
   pie: { w: 4, h: 4 },
@@ -81,7 +84,7 @@ export function parseWidgets(input: unknown, opts: ParseOptions = {}): ParseResu
     const raw = input[i] as Record<string, unknown> | null;
     const where = `Widget ${i + 1}`;
     if (!raw || typeof raw !== "object") return { ok: false, error: `${where} is not valid.` };
-    const { id, kind, title, metrics, dimension, text, range, x, y, w, h } = raw;
+    const { id, kind, title, metrics, dimension, text, range, hideChange, x, y, w, h } = raw;
     if (typeof id !== "string" || !ID_RE.test(id)) return { ok: false, error: `${where} has an invalid id.` };
     if (ids.has(id)) return { ok: false, error: `${where} repeats another widget's id.` };
     ids.add(id);
@@ -139,6 +142,7 @@ export function parseWidgets(input: unknown, opts: ParseOptions = {}): ParseResu
       if (typeof range !== "string" || !RANGE_PRESETS.includes(range as RangePreset)) return { ok: false, error: `${name} has an unknown date range.` };
       widget.range = range;
     }
+    if (k === "kpi" && hideChange === true) widget.hideChange = true;
     out.push(widget);
   }
   return { ok: true, widgets: out };

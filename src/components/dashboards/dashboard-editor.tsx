@@ -2,14 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { useRouter } from "next/navigation";
-import { GripVertical, Plus, Settings2, X } from "lucide-react";
+import { GripVertical, Plus, RotateCcw, Settings2, X } from "lucide-react";
 import type { MetricSource } from "@/lib/metrics-registry";
 import type { DashboardWidget } from "@/lib/dashboards/types";
 import type { DashboardData, WidgetData } from "@/lib/dashboards/widget-data";
 import { GRID_COLS, MAX_WIDGETS, parseWidgets } from "@/lib/dashboards/parse";
 import { moveWidget, newWidgetId, placeNew, resizeWidget, sortByPosition } from "@/lib/dashboards/layout";
 import { KIND_LABEL, widgetTitle } from "@/lib/dashboards/describe";
-import { previewWidgetAction, saveDashboardWidgetsAction } from "@/server/dashboards/actions";
+import { previewWidgetAction, saveDashboardWidgetsAction, type DashboardResult } from "@/server/dashboards/actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/components/ui/cn";
@@ -21,7 +21,8 @@ const ROW = 64;
 const GAP = 12;
 
 export interface DashboardEditorProps {
-  dashboardId: string;
+  /** The saved dashboard; may be null when `saveAction` saves elsewhere (e.g. a client's Report). */
+  dashboardId: string | null;
   name: string;
   widgets: DashboardWidget[];
   data: DashboardData;
@@ -34,6 +35,12 @@ export interface DashboardEditorProps {
   rangeParams: { range?: string; compare?: string; from?: string; to?: string };
   /** Where Save and Cancel go. */
   doneHref: string;
+  /** Saves the widgets instead of the dashboard row (a bound server action). */
+  saveAction?: (widgets: DashboardWidget[]) => Promise<DashboardResult>;
+  /** Fixed heading in place of the name field (the name then isn't editable). */
+  heading?: string;
+  /** Default layout offered by "Reset to default" (applied to the draft; saved with Save). */
+  resetWidgets?: DashboardWidget[];
 }
 
 type Drag = { id: string; mode: "move" | "resize"; px: number; py: number; base: DashboardWidget[]; orig: DashboardWidget };
@@ -50,7 +57,7 @@ const templateData = (w: DashboardWidget): WidgetData | undefined =>
  * popover, then Save or Cancel. Keyboard: arrows move the focused handle,
  * Shift+arrows resize. Unsaved changes are protected on leaving.
  */
-export function DashboardEditor({ dashboardId, name: initialName, widgets: initialWidgets, data: initialData, currency, slots, clientId, linked, rangeParams, doneHref }: DashboardEditorProps) {
+export function DashboardEditor({ dashboardId, name: initialName, widgets: initialWidgets, data: initialData, currency, slots, clientId, linked, rangeParams, doneHref, saveAction, heading, resetWidgets }: DashboardEditorProps) {
   const router = useRouter();
   const [saved, setSaved] = useState({ widgets: initialWidgets, name: initialName });
   const [widgets, setWidgets] = useState(initialWidgets);
@@ -218,7 +225,7 @@ export function DashboardEditor({ dashboardId, name: initialName, widgets: initi
     start(async () => {
       setError(null);
       try {
-        const res = await saveDashboardWidgetsAction(dashboardId, widgets, name);
+        const res = saveAction ? await saveAction(widgets) : dashboardId ? await saveDashboardWidgetsAction(dashboardId, widgets, name) : { ok: false as const, error: "Nothing to save to." };
         if (!res.ok) return setError(res.error);
         setSaved({ widgets, name: name.trim() });
         go(doneHref);
@@ -227,6 +234,15 @@ export function DashboardEditor({ dashboardId, name: initialName, widgets: initi
       }
     });
   const cancel = () => (dirty ? setLeaveTo(doneHref) : go(doneHref));
+  const reset = () => {
+    if (!resetWidgets) return;
+    setWidgets(resetWidgets);
+    setSettingsFor(null);
+    setError(null);
+    // Widgets matching the saved ones keep their data; the rest load a preview.
+    for (const w of resetWidgets) if (!sameWidget(initialWidgets.find((s) => s.id === w.id), w)) preview(w);
+    setAnnounce("Layout reset to the default. Save to keep it.");
+  };
 
   const bottom = widgets.reduce((m, w) => Math.max(m, w.y + w.h), 0);
   const height = (bottom + 3) * (ROW + GAP);
@@ -237,14 +253,25 @@ export function DashboardEditor({ dashboardId, name: initialName, widgets: initi
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-surface px-4 py-3">
         <div className="flex min-w-0 flex-1 items-center gap-2">
-          <label htmlFor="dash-name" className="sr-only">Dashboard name</label>
-          <Input id="dash-name" value={name} maxLength={80} onChange={(e) => setName(e.target.value)} className="max-w-sm font-medium" />
+          {heading ? (
+            <p className="text-sm font-semibold">{heading}</p>
+          ) : (
+            <>
+              <label htmlFor="dash-name" className="sr-only">Dashboard name</label>
+              <Input id="dash-name" value={name} maxLength={80} onChange={(e) => setName(e.target.value)} className="max-w-sm font-medium" />
+            </>
+          )}
           <span className="hidden text-xs text-text-3 sm:inline">{widgets.length}/{MAX_WIDGETS} widgets{dirty && " · unsaved changes"}</span>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Button type="button" variant="outline" onClick={() => { setLibrary(true); setSettingsFor(null); }} disabled={widgets.length >= MAX_WIDGETS}>
             <Plus className="h-4 w-4" aria-hidden /> Add widget
           </Button>
+          {resetWidgets && (
+            <Button type="button" variant="ghost" onClick={reset} disabled={pending}>
+              <RotateCcw className="h-4 w-4" aria-hidden /> Reset to default
+            </Button>
+          )}
           <Button type="button" variant="ghost" onClick={cancel} disabled={pending}>Cancel</Button>
           <Button type="button" onClick={save} disabled={pending || !dirty || !name.trim()}>{pending ? "Saving…" : "Save"}</Button>
         </div>
@@ -312,7 +339,7 @@ export function DashboardEditor({ dashboardId, name: initialName, widgets: initi
                 </div>
                 {settingsFor === w.id && (
                   <div className={cn("absolute top-9 z-30", r.left + 320 > width ? "right-0" : "left-0")}>
-                    <WidgetSettings widget={w} onApply={applySettings} onRemove={() => remove(w.id)} onClose={() => setSettingsFor(null)} />
+                    <WidgetSettings widget={w} linked={clientId ? linked : undefined} onApply={applySettings} onRemove={() => remove(w.id)} onClose={() => setSettingsFor(null)} />
                   </div>
                 )}
               </div>

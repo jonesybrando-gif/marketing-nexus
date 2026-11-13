@@ -44,8 +44,8 @@ export function WidgetView({ widget, data, currency, slots, staff = false, fill 
     const slot = slots?.[widget.kind];
     return <div className={cn("flex flex-col gap-3", fill === "always" ? "h-full overflow-hidden" : "md:h-full md:overflow-auto")}>{slot ?? <Placeholder text="Shown with the client's data." />}</div>;
   }
-  if (widget.kind === "kpi" && data?.kind === "kpi") return <KpiWidget title={title} data={data} currency={currency} fillCls={fillCls} />;
-  const chart = widget.kind === "line" || widget.kind === "bar" || widget.kind === "pie";
+  if (widget.kind === "kpi" && data?.kind === "kpi") return <KpiWidget title={title} data={data} currency={currency} fillCls={fillCls} hideChange={widget.hideChange} />;
+  const chart = widget.kind === "line" || widget.kind === "area" || widget.kind === "bar" || widget.kind === "pie";
   return (
     <section aria-label={title || "Note"} className={cn("flex min-w-0 flex-col rounded-xl border border-border bg-surface", chart && fill === "grid" && "h-72", fillCls, widget.kind === "text" && "border-transparent bg-transparent")}>
       {title && (
@@ -66,7 +66,7 @@ function WidgetBody({ widget, data, currency, staff }: { widget: DashboardWidget
   if (data.kind === "empty") return <EmptyState data={data} staff={staff} />;
   switch (data.kind) {
     case "series":
-      return <SeriesChart dates={data.dates} metrics={data.metrics} current={data.current} previous={data.previous} previousDates={data.previousDates} currency={currency} type={widget.kind === "bar" ? "bar" : "line"} />;
+      return <SeriesChart dates={data.dates} metrics={data.metrics} current={data.current} previous={data.previous} previousDates={data.previousDates} currency={currency} type={widget.kind === "bar" ? "bar" : widget.kind === "area" ? "area" : "line"} />;
     case "breakdown":
       if (widget.kind === "pie") return <MetricPieChart rows={data.rows} metric={data.metrics[0]} currency={currency} />;
       if (widget.kind === "bar") return <BreakdownBarChart rows={data.rows} metric={data.metrics[0]} currency={currency} />;
@@ -233,7 +233,7 @@ function FormLog({ rows, total, timeZone }: { rows: FormLogRow[]; total: number;
   );
 }
 
-function KpiWidget({ title, data, currency, fillCls }: { title: string; data: Extract<WidgetData, { kind: "kpi" }>; currency: string; fillCls: string }) {
+function KpiWidget({ title, data, currency, fillCls, hideChange = false }: { title: string; data: Extract<WidgetData, { kind: "kpi" }>; currency: string; fillCls: string; hideChange?: boolean }) {
   // Same wording as the report tiles: "Up 8% from 120 · better", "About the same as 120", "Too few to compare".
   const verdict = data.verdict ?? (data.tone === "good" ? "better" : data.tone === "bad" ? "worse" : data.metric.better === "neutral" ? "neutral" : "same");
   const words = changeWords(verdict, data.changePct, formatMetric(data.metric, data.previous, currency), data.metric.label);
@@ -244,13 +244,13 @@ function KpiWidget({ title, data, currency, fillCls }: { title: string; data: Ex
         <InfoTip label={data.metric.label} text={data.metric.plain ?? data.metric.description} />
       </h3>
       <p className="truncate text-xl font-semibold tabular">{formatMetric(data.metric, data.value, currency)}</p>
-      <p className="flex min-w-0 items-center gap-1 text-xs tabular">
+      {!hideChange && <p className="flex min-w-0 items-center gap-1 text-xs tabular">
         {data.changePct === null ? (
           <span className="text-text-3">{data.value === null ? "not reported" : data.hasComparison ? "no comparison data" : "no comparison"}</span>
         ) : (
           <ChangeLine tone={data.tone} changePct={data.changePct} text={words.text} aria={words.aria} />
         )}
-      </p>
+      </p>}
       <FluidSparkline values={data.spark} />
     </section>
   );

@@ -4,6 +4,7 @@
 export type WidgetKind =
   | "kpi"        // single number with change vs comparison period (+ sparkline)
   | "line"       // daily series, 1-3 metrics
+  | "area"       // daily series drawn as a filled line, 1-3 metrics
   | "bar"        // daily or breakdown bars
   | "table"      // breakdown by a dimension (e.g. top GSC queries, GA4 channels, call sources)
   | "pie"        // share by dimension
@@ -26,6 +27,8 @@ export interface DashboardWidget {
   text?: string;
   /** Optional per-widget range override (preset key from src/lib/date-ranges). */
   range?: string;
+  /** Number (kpi) tiles: hide the change vs the comparison period. */
+  hideChange?: boolean;
   /** Grid placement (12-column grid; h in row units of ~80px). */
   x: number;
   y: number;
