@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { prisma } from "@/server/db";
+import { logoUrlSchema } from "@/lib/logo";
 import { requireAdmin } from "@/server/access";
 import { archiveClient, bulkLabel, ClientAdminError, findOrCreateLabel, createLabel, deleteClientPermanently, deleteLabel, restoreClient, setClientLabels } from "@/server/client-admin";
 
@@ -20,6 +21,7 @@ const schema = z.object({
     }
   }, "Choose a valid timezone"),
   managerId: z.string().optional(),
+  logoUrl: logoUrlSchema.optional(),
 });
 
 export async function createClient(_prev: ClientFormState, form: FormData): Promise<ClientFormState> {
@@ -35,6 +37,7 @@ export async function createClient(_prev: ClientFormState, form: FormData): Prom
       name: parsed.data.name,
       timezone: parsed.data.timezone,
       primaryManagerId: managerId,
+      logoUrl: parsed.data.logoUrl || null,
       assignments: managerId ? { create: [{ userId: managerId }] } : undefined,
     },
   });

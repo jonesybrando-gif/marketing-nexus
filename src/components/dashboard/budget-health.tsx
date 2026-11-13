@@ -30,7 +30,7 @@ export function BudgetHealth({ d }: { d: BudgetHealthData }) {
     <section aria-labelledby="budget-health" className="flex flex-col gap-4 rounded-xl border border-border bg-surface px-5 py-5">
       <div className="flex items-baseline justify-between gap-3">
         <h2 id="budget-health" className="text-[15px] font-semibold">Budget health{d.periodName && ` · ${d.periodName}`}</h2>
-        <Link href="/clients?view=budgets" className="text-[13px] font-medium text-brand-text hover:underline">Open budgets</Link>
+        <Link href="/budget-pacing" className="text-[13px] font-medium text-brand-text hover:underline">Open budgets</Link>
       </div>
       <div>
         <p className="text-xl font-semibold tracking-tight tabular">{headline}</p>

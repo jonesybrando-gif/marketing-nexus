@@ -89,7 +89,7 @@ export async function saveMonthlyBudget(input: unknown): Promise<SaveBudgetResul
     console.error("[budget-pacing] save failed", e);
     return { ok: false, error: "Couldn't save. Try again." };
   }
-  revalidatePath("/clients");
+  revalidatePath("/budget-pacing");
   revalidatePath(`/clients/${clientId}`, "layout");
   revalidatePath("/dashboard");
   return { ok: true, amountMinor };
