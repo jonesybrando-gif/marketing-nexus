@@ -21,10 +21,13 @@ export interface ClientPerformance {
  * Aggregates leaf daily rows for a client and range. Callers must have already
  * checked the user may view this client.
  */
-/** `accountIds`: only these ad accounts (the report's account filter); omitted = every account. */
-export async function getClientPerformance(clientId: string, range: DateRange, accountIds?: string[]): Promise<ClientPerformance> {
+/**
+ * `accountIds`: only these ad accounts (the report's account filter); omitted = every account.
+ * `campaignIds`: only these campaigns (a campaign's detail view).
+ */
+export async function getClientPerformance(clientId: string, range: DateRange, accountIds?: string[], campaignIds?: string[]): Promise<ClientPerformance> {
   const rows = await prisma.dailyPerformance.findMany({
-    where: { account: { clientId }, ...(accountIds ? { accountId: { in: accountIds } } : {}), date: { gte: isoToDate(range.from), lte: isoToDate(range.to) }, ...INCLUDED_ROWS },
+    where: { account: { clientId }, ...(accountIds ? { accountId: { in: accountIds } } : {}), ...(campaignIds ? { campaignId: { in: campaignIds } } : {}), date: { gte: isoToDate(range.from), lte: isoToDate(range.to) }, ...INCLUDED_ROWS },
     select: {
       accountId: true,
       campaignId: true,

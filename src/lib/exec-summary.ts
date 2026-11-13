@@ -114,26 +114,48 @@ export function autoOverview(i: AiContextInput): string {
 
 // --- Email-ready copies -----------------------------------------------------
 
-const SECTIONS = [
-  { key: "working", title: "What's working", numbered: false },
-  { key: "notWorking", title: "What needs attention", numbered: false },
-  { key: "recommendations", title: "Recommendations", numbered: true },
-] as const;
+type SummaryLists = Partial<ExecutiveSummaryContent> & Pick<ExecutiveSummaryContent, "working" | "notWorking" | "recommendations">;
 
-/** The sections a reader sees: client-facing copies swap the agency's recommendations for "What we're doing next". */
-export function summarySections(clientFacing: boolean) {
-  return clientFacing
-    ? ([SECTIONS[0], SECTIONS[1], { key: "nextSteps", title: "What we're doing next", numbered: false }] as const)
-    : SECTIONS;
+export interface SummarySection {
+  title: string;
+  items: string[];
+  numbered: boolean;
+}
+
+/** Good news and problems, alternating, so a short list shows both sides. */
+function interleave(a: string[], b: string[]): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    if (a[i]) out.push(a[i]);
+    if (b[i]) out.push(b[i]);
+  }
+  return out;
+}
+
+export const OVERVIEW_TITLE = "Performance overview";
+
+/**
+ * The summary's sections after the overview: "What the data tells us" (what's
+ * working and what needs attention, together) and "Recommended next steps"
+ * (most important first). Client-facing copies show the agency's approved
+ * "What we're doing next" in place of recommendations, or nothing when there
+ * are none. `limit` trims each list for the compact view.
+ */
+export function summaryOutline(s: SummaryLists, clientFacing: boolean, limit?: number): SummarySection[] {
+  const cap = (xs: string[]) => (limit ? xs.slice(0, limit) : xs);
+  const insights = interleave(s.working ?? [], s.notWorking ?? []);
+  const steps = clientFacing ? s.nextSteps ?? [] : s.recommendations ?? [];
+  return [
+    { title: "What the data tells us", items: cap(insights), numbered: false },
+    { title: clientFacing ? "What we're doing next" : "Recommended next steps", items: cap(steps), numbered: !clientFacing },
+  ].filter((sec) => sec.items.length > 0);
 }
 
 /** Plain text for pasting into any email client. */
 export function summaryAsText(s: Partial<ExecutiveSummaryContent> & Pick<ExecutiveSummaryContent, "overview" | "working" | "notWorking" | "recommendations">, heading: string, opts: { clientFacing?: boolean } = {}): string {
-  const out = [heading, "", ...s.overview.split(/\n{2,}/).flatMap((p) => [p.trim(), ""])];
-  for (const sec of summarySections(!!opts.clientFacing)) {
-    const items = s[sec.key] ?? [];
-    if (!items.length) continue;
-    out.push(sec.title, ...items.map((x, i) => `${sec.numbered ? `${i + 1}.` : "•"} ${x}`), "");
+  const out = [heading, "", OVERVIEW_TITLE, ...s.overview.split(/\n{2,}/).flatMap((p) => [p.trim(), ""])];
+  for (const sec of summaryOutline(s, !!opts.clientFacing)) {
+    out.push(sec.title, ...sec.items.map((x, i) => `${sec.numbered ? `${i + 1}.` : "•"} ${x}`), "");
   }
   return out.join("\n").trim();
 }
@@ -145,12 +167,10 @@ export function summaryAsHtml(s: Partial<ExecutiveSummaryContent> & Pick<Executi
   const p = "margin:0 0 12px;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;color:#1f2328;";
   const h = "margin:16px 0 6px;font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:bold;color:#1f2328;";
   const li = "margin:0 0 6px;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;color:#1f2328;";
-  const parts = [`<p style="${h}margin-top:0;font-size:16px;">${esc(heading)}</p>`, ...s.overview.split(/\n{2,}/).map((x) => `<p style="${p}">${esc(x.trim())}</p>`)];
-  for (const sec of summarySections(!!opts.clientFacing)) {
-    const items = s[sec.key] ?? [];
-    if (!items.length) continue;
+  const parts = [`<p style="${h}margin-top:0;font-size:16px;">${esc(heading)}</p>`, `<p style="${h}">${OVERVIEW_TITLE}</p>`, ...s.overview.split(/\n{2,}/).map((x) => `<p style="${p}">${esc(x.trim())}</p>`)];
+  for (const sec of summaryOutline(s, !!opts.clientFacing)) {
     const tag = sec.numbered ? "ol" : "ul";
-    parts.push(`<p style="${h}">${esc(sec.title)}</p>`, `<${tag} style="margin:0 0 12px;padding-left:22px;">${items.map((x) => `<li style="${li}">${esc(x)}</li>`).join("")}</${tag}>`);
+    parts.push(`<p style="${h}">${esc(sec.title)}</p>`, `<${tag} style="margin:0 0 12px;padding-left:22px;">${sec.items.map((x) => `<li style="${li}">${esc(x)}</li>`).join("")}</${tag}>`);
   }
   return `<div>${parts.join("")}</div>`;
 }

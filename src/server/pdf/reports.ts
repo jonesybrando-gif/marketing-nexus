@@ -5,7 +5,7 @@ import { contextInput } from "../ai/context";
 import { analyzePerformance } from "@/lib/insights";
 import { attentionLines, headlineSentence, pacingHeadline } from "@/lib/at-a-glance";
 import { displayPacingStatus } from "@/lib/pacing/display-status";
-import { summarySections } from "@/lib/exec-summary";
+import { summaryOutline } from "@/lib/exec-summary";
 import { rangeLabel } from "@/lib/date-ranges";
 import type { AgencySummary, ClientPacing } from "../pacing-service";
 import { derive } from "@/lib/metrics";
@@ -266,7 +266,7 @@ export async function renderClientReportPdf(
       });
     };
     // The client's copy shows "What we're doing next" (agency voice) instead of the agency's recommendations, or nothing when empty.
-    for (const sec of summarySections(!opts.internal)) list(sec.title, es[sec.key] ?? [], sec.numbered);
+    for (const sec of summaryOutline(es, !opts.internal)) list(sec.title, sec.items, sec.numbered);
     doc.moveDown(0.3);
     paragraph(doc, `${es.source === "ai" ? "Written by AI" : "Worked out automatically"} from the figures in this report.${opts.internal ? " Recommendations are suggestions; nothing has been changed in the ad accounts." : ""}`, { size: 7.5 });
     doc.moveDown(1);

@@ -32,7 +32,9 @@ import { ClientBudgetTable } from "./client-budget-table";
 import { ClientFacingDashboards } from "@/components/dashboards/dashboard-section";
 import { ConnectedDataSection } from "@/components/dashboards/connected-data-section";
 import { listClientDashboards } from "@/server/dashboards/access";
-import { CampaignsSection, DataFreshness, hiddenMarker, HistorySection, NoAccountsState, PacingSection, PlatformSection, TrendsSection } from "@/components/reports/report-sections";
+import { DataFreshness, HistorySection, NoAccountsState, PlatformSection } from "@/components/reports/report-sections";
+import { PaidMediaTab } from "@/components/reports/paid-media-tab";
+import { CollapsibleSection } from "@/components/ui/collapsible-section";
 import { ClientLogo } from "@/components/client-logo";
 import { SeoTab } from "@/components/seo/seo-tab";
 import { NextStepsSection } from "@/components/next-steps/next-steps-section";
@@ -102,7 +104,6 @@ export default async function ClientPage({ params, searchParams }: { params: Pro
     const s = q.toString();
     return s ? `${base}?${s}` : base;
   };
-  const mark = hiddenMarker(rep, staff);
   const exportBase = `/api/reports/clients/${id}`;
 
   // Sub-pages get the range and tab so their back links return to the same view.
@@ -254,31 +255,23 @@ export default async function ClientPage({ params, searchParams }: { params: Pro
             <WithReport report={loadFull()}>{(rep) => <NoAccountsState rep={rep} staff />}</WithReport>
           </Suspense>
           {/* Notes on the data work without ad accounts too (SEO- or analytics-only clients). */}
-          <NotesCard clientId={id} agencyId={user.agencyId} defaultDate={rep.range.to} />
+          <Annotations clientId={id} agencyId={user.agencyId} defaultDate={rep.range.to} range={rep.range} card />
         </>
       )}
 
       {tab === "paid" && client.accounts.length > 0 && (
-        <>
-          <Suspense fallback={<SectionSkeleton cards={1} />}>
-            <WithReport report={loadFull()}>
-              {(rep) => (
-                <>
-                  <CampaignsSection rep={rep} staff basePath={base} marker={mark("campaigns")} />
-                  {client.accounts.length > 1 && <PlatformSection rep={rep} staff marker={mark("platforms")} />}
-                </>
-              )}
-            </WithReport>
-          </Suspense>
-          <Suspense fallback={<SectionSkeleton cards={1} />}>
-            <WithReport report={loadFull()}>{(rep) => <TrendsSection rep={rep} marker={mark("trends")} staff />}</WithReport>
-          </Suspense>
-          {/* The note form stays outside the suspended sections. */}
-          <NotesCard clientId={id} agencyId={user.agencyId} defaultDate={rep.range.to} />
-          <Suspense fallback={<SectionSkeleton cards={1} tallFirst={false} />}>
-            <WithReport report={loadFull()}>{(rep) => <HistorySection rep={rep} marker={mark("history")} />}</WithReport>
-          </Suspense>
-        </>
+        <Suspense fallback={<SectionSkeleton tiles={3} cards={1} />}>
+          <WithReport report={loadFull()}>
+            {(rep) => (
+              <PaidMediaTab
+                rep={rep}
+                basePath={base}
+                params={sp}
+                annotations={<Annotations clientId={id} agencyId={user.agencyId} defaultDate={rep.range.to} range={rep.range} />}
+              />
+            )}
+          </WithReport>
+        </Suspense>
       )}
 
       {tab === "seo" && <SeoTab clientId={id} range={range} cmpRange={cmpRange} canEdit={canEdit} settingsHref={tabHref("settings")} />}
@@ -288,11 +281,13 @@ export default async function ClientPage({ params, searchParams }: { params: Pro
       {tab === "budgets" && (
         <>
           <Suspense fallback={<SectionSkeleton cards={1} tallFirst={false} />}>
-            <ClientBudgetTable clientId={id} user={user} canEdit={canEdit} />
+            <ClientBudgetTable clientId={id} user={user} canEdit={canEdit} range={range} />
           </Suspense>
-          <Suspense fallback={<SectionSkeleton cards={1} />}>
-            <WithReport report={loadFull()}>{(rep) => <PacingSection rep={rep} staff basePath={base} query={sp} marker={mark("pacing")} />}</WithReport>
-          </Suspense>
+          <CollapsibleSection storageKey="budget-history" title="View budget history" hint="Budget, actual spend and the final result for previous months" defaultOpen={false}>
+            <Suspense fallback={<SectionSkeleton cards={1} tallFirst={false} />}>
+              <WithReport report={loadFull()}>{(rep) => <HistorySection rep={rep} hideEmpty bare />}</WithReport>
+            </Suspense>
+          </CollapsibleSection>
           <Link href={keep(`${base}/budgets`)} className="flex min-h-10 flex-col gap-1 self-start rounded-xl border border-border bg-surface px-5 py-4 hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/60">
             <span className="flex items-center gap-2 text-sm font-semibold"><Wallet className="h-4 w-4 text-text-2" aria-hidden /> Set up budgets</span>
             <span className="text-xs text-text-3">Monthly amounts, how they&apos;re split across accounts and campaigns, and when pacing warns you.</span>
@@ -392,39 +387,51 @@ async function WithReport({ report, children }: { report: Promise<ClientReport>;
   return <>{children(await report)}</>;
 }
 
-/** Dated notes shown as markers on this client's charts, with an add form and teammate tagging. */
-async function NotesCard({ clientId, agencyId, defaultDate }: { clientId: string; agencyId: string; defaultDate: string }) {
+/**
+ * Dated notes shown as ◆ markers on this client's charts: a short list (notes
+ * in the page's range first) and a small "Add a note" form that stays closed
+ * until needed. `card` gives it its own card (clients with no ad accounts).
+ */
+async function Annotations({ clientId, agencyId, defaultDate, range, card = false }: { clientId: string; agencyId: string; defaultDate: string; range: { from: string; to: string }; card?: boolean }) {
   const [notes, staff] = await Promise.all([
     prisma.chartNote.findMany({ where: { clientId }, orderBy: [{ date: "desc" }, { createdAt: "desc" }], take: 50 }),
     prisma.user.findMany({ where: { agencyId, deactivatedAt: null, role: { in: ["AGENCY_ADMIN", "ACCOUNT_MANAGER"] } }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
   ]);
   const name = new Map(staff.map((u) => [u.id, u.name]));
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-1.5"><StickyNote className="h-4 w-4 text-text-2" aria-hidden /> Notes on the data</CardTitle>
-        <CardDescription>Pin a note to a date (a budget change, a launch, a tracking fix). It appears as ◆ on the charts; tag a teammate to email them.</CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-4">
-        <ChartNoteForm clientId={clientId} defaultDate={defaultDate} teammates={staff} />
-        {notes.length > 0 && (
-          <ul className="divide-y divide-border border-t border-border">
-            {notes.map((n) => (
-              <li key={n.id} className="flex flex-wrap items-start justify-between gap-2 py-2.5">
-                <div className="min-w-0">
-                  <p className="text-sm"><span className="font-medium tabular">{formatDate(n.date.toISOString().slice(0, 10), { month: "short", day: "numeric", year: "numeric" })}</span> · {n.text}</p>
-                  <p className="text-xs text-text-3">
-                    {n.authorId ? name.get(n.authorId) ?? "A former teammate" : "Someone"}
-                    {n.taggedUserId && <> · tagged {name.get(n.taggedUserId) ?? "a teammate"}</>}
-                    {n.clientVisible ? " · shown to the client" : " · team only"}
-                  </p>
-                </div>
-                <ActionButton action={deleteChartNoteAction.bind(null, clientId, n.id)} label="Delete" variant="ghost" confirm="Delete this note?" />
-              </li>
-            ))}
-          </ul>
-        )}
-      </CardContent>
-    </Card>
+  const day = (d: Date) => d.toISOString().slice(0, 10);
+  const inRange = notes.filter((n) => day(n.date) >= range.from && day(n.date) <= range.to);
+  const others = notes.filter((n) => !inRange.includes(n));
+  const item = (n: (typeof notes)[number]) => (
+    <li key={n.id} className="flex items-start justify-between gap-2 py-1.5">
+      <div className="min-w-0">
+        <p className="text-sm"><span aria-hidden className="text-text-3">◆ </span><span className="font-medium tabular">{formatDate(day(n.date), { month: "short", day: "numeric", year: "numeric" })}</span> · {n.text}</p>
+        <p className="text-xs text-text-3">
+          {n.authorId ? name.get(n.authorId) ?? "A former teammate" : "Someone"}
+          {n.taggedUserId && <> · tagged {name.get(n.taggedUserId) ?? "a teammate"}</>}
+          {n.clientVisible ? " · shown to the client" : " · team only"}
+        </p>
+      </div>
+      <ActionButton action={deleteChartNoteAction.bind(null, clientId, n.id)} label="Delete" variant="ghost" confirm="Delete this note?" />
+    </li>
   );
+  const body = (
+    <div className="flex flex-col gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="flex items-center gap-1.5 text-sm font-medium"><StickyNote className="h-4 w-4 text-text-2" aria-hidden /> Annotations{inRange.length > 0 && <span className="font-normal text-text-3">({inRange.length} in this period)</span>}</p>
+      </div>
+      {inRange.length > 0 ? <ul className="divide-y divide-border">{inRange.map(item)}</ul> : <p className="text-xs text-text-3">No notes in this period. Pin one to a date (a budget change, a launch, a tracking fix) and it shows on the chart.</p>}
+      {others.length > 0 && (
+        <details className="group">
+          <summary className="cursor-pointer text-xs font-medium text-text-2 hover:text-text">Other notes ({others.length})</summary>
+          <ul className="mt-1 divide-y divide-border">{others.slice(0, 20).map(item)}</ul>
+        </details>
+      )}
+      <details className="rounded-lg border border-border px-3 py-2 open:pb-3">
+        <summary className="cursor-pointer text-sm font-medium text-brand-text">+ Add a note</summary>
+        <div className="mt-3"><ChartNoteForm clientId={clientId} defaultDate={defaultDate} teammates={staff} /></div>
+      </details>
+    </div>
+  );
+  if (!card) return <div className="border-t border-border pt-3">{body}</div>;
+  return <Card><CardContent className="pt-5">{body}</CardContent></Card>;
 }

@@ -15,11 +15,14 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { saveMonthlyBudget } from "./budget-pacing-actions";
 import { compareAdjustments, recommendAdjustment, type Adjustment } from "@/lib/pacing/daily-budget";
+import { budgetOverview, PACING_LABEL } from "@/lib/pacing/overview";
+import { BudgetOverviewPanel, PacingStatus } from "@/components/budgets/budget-overview";
 
 const FILTER_LABEL: Record<PlatformKey, string> = { ...PLATFORM_LABEL, GOOGLE_LSA: "Google Local Services Ads" };
 const DOT: Record<SimpleTone, string> = { red: "bg-critical", amber: "bg-dot-watch", green: "bg-good", gray: "bg-transparent ring-1 ring-inset ring-text-3/60" };
 
-type SortKey = "client" | "platform" | "budget" | "used" | "left" | "adjust";
+type SortKey = "client" | "platform" | "budget" | "used" | "left" | "adjust" | "status";
+const STATUS_ORDER = { OVER_BUDGET: 4, OVERSPENDING: 3, UNDERSPENDING: 2, ON_PACE: 1, UNKNOWN: 0 } as const;
 type Sort = { key: SortKey; dir: 1 | -1 } | null;
 
 const money = (r: SimpleRow) => (m: number) => formatMoney(m, r.currency, { whole: true });
@@ -56,6 +59,8 @@ export function BudgetPacingTable({
   labels = [],
   labelsByClient = {},
   variant = "agency",
+  accountNames = {},
+  overview,
 }: {
   rows: SimpleRow[];
   month: MonthOption;
@@ -65,8 +70,14 @@ export function BudgetPacingTable({
   labelsByClient?: Record<string, string[]>;
   /** "client": one client's rows on its Budgets tab — no toolbar, platform first, no client column. */
   variant?: "agency" | "client";
+  /** Client variant: account names for the Account column. */
+  accountNames?: Record<string, string>;
+  /** Client variant: the month overview (cards and progress bar) above the table, in this currency. */
+  overview?: { currency: string; rangeNote?: string | null };
 }) {
   const single = variant === "client";
+  /** Client variant: the accounts behind a row by name (platform underneath). */
+  const accountText = (r: SimpleRow) => (r.accountIds ?? []).map((id) => accountNames[id]).filter(Boolean).join(", ") || platformText(r);
   const router = useRouter();
   const [navigating, startNav] = useTransition();
   const [rows, setRows] = useState(initialRows);
@@ -94,6 +105,7 @@ export function BudgetPacingTable({
       used: (a, b) => byNumber(a.spendMinor, b.spendMinor, sort.dir) || tie(a, b),
       left: (a, b) => byNumber(budgetLeft(a), budgetLeft(b), sort.dir) || tie(a, b),
       adjust: (a, b) => compareAdjustments(adjustment(a), adjustment(b)) * sort.dir || tie(a, b),
+      status: (a, b) => (STATUS_ORDER[info(b).status] - STATUS_ORDER[info(a).status]) * sort.dir || tie(a, b),
     };
     return [...out].sort(cmp[sort.key]);
   }, [rows, q, platform, label, labelsByClient, sort]);
@@ -103,7 +115,7 @@ export function BudgetPacingTable({
     const active = sort?.key === key;
     const ascending = active && (numeric ? sort.dir === -1 : sort.dir === 1);
     return (
-      <th scope="col" aria-sort={active ? (ascending ? "ascending" : "descending") : "none"} className={cn("px-3 py-2.5 text-xs font-medium text-text-3 whitespace-nowrap", numeric ? "text-right" : "text-left", key === "client" && "pl-3 sm:pl-5", key === "platform" && "hidden sm:table-cell", key === "adjust" && "hidden pr-3 sm:table-cell sm:pr-5", "max-sm:px-1.5")}>
+      <th scope="col" aria-sort={active ? (ascending ? "ascending" : "descending") : "none"} className={cn("px-3 py-2.5 text-xs font-medium text-text-3 whitespace-nowrap", numeric ? "text-right" : "text-left", key === "client" && "pl-3 sm:pl-5", key === "platform" && "hidden sm:table-cell", (key === "adjust" || key === "status") && "hidden pr-3 sm:table-cell sm:pr-5", "max-sm:px-1.5")}>
         <button
           type="button"
           className={cn("inline-flex cursor-pointer items-center gap-1 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring rounded-sm", active && "text-text")}
@@ -137,8 +149,20 @@ export function BudgetPacingTable({
     router.refresh();
   };
 
+  const ov = single && overview ? budgetOverview(rows, overview.currency, (m) => formatMoney(m, overview.currency, { whole: true })) : null;
+  const totalRow = single && visible.length > 1 ? (() => {
+    const budgeted = visible.filter((r) => r.budgetMinor !== null);
+    const b = budgeted.length ? budgeted.reduce((x, r) => x + r.budgetMinor!, 0) : null;
+    const known = visible.filter((r) => r.spendMinor !== null);
+    const spent = known.length ? known.reduce((x, r) => x + r.spendMinor!, 0) : null;
+    const left = budgeted.length && budgeted.every((r) => r.spendMinor !== null) ? budgeted.reduce((x, r) => x + r.budgetMinor! - r.spendMinor!, 0) : null;
+    return { b, spent, left, partial: known.length < visible.length };
+  })() : null;
+  const cur = (m: number) => formatMoney(m, visible[0]?.currency ?? "USD", { whole: true });
+
   return (
     <div className="flex flex-col gap-3">
+      {ov && <BudgetOverviewPanel o={ov} monthLabel={month.label} rangeNote={overview?.rangeNote} offPace={rows.filter((r) => r.budgetMinor !== null && ["OVERSPENDING", "UNDERSPENDING", "OVER_BUDGET"].includes(info(r).status)).length} />}
       {!single && (
       <div className="flex flex-wrap items-center gap-2">
         <Input type="search" placeholder="Search clients" value={q} onChange={(e) => setQ(e.target.value)} className="w-full sm:w-56" aria-label="Search clients" />
@@ -180,12 +204,12 @@ export function BudgetPacingTable({
           </colgroup>
           <thead className="border-b border-border">
             <tr>
-              {single ? header("platform", "Platform") : header("client", "Client")}
+              {single ? header("platform", "Account") : header("client", "Client")}
               {!single && header("platform", "Platform")}
               {header("budget", "Monthly Budget", true, "Budget")}
-              {header("used", "Budget Used", true, "Used")}
-              {header("left", "Budget Left", true, "Left")}
-              {header("adjust", "Adjustment Needed")}
+              {header("used", single ? "Spent" : "Budget Used", true, single ? "Spent" : "Used")}
+              {header("left", single ? "Remaining" : "Budget Left", true, "Left")}
+              {single ? header("status", "Pacing Status") : header("adjust", "Adjustment Needed")}
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
@@ -204,14 +228,18 @@ export function BudgetPacingTable({
                       </Tip>
                       <div className="min-w-0">
                         {single ? (
-                          <span className="block truncate font-medium text-text" title={platformText(r)}>{platformText(r)}</span>
+                          <>
+                            <span className="block truncate font-medium text-text" title={accountText(r)}>{accountText(r)}</span>
+                            {accountText(r) !== platformText(r) && <span className="block truncate text-xs text-text-3">{platformText(r)}</span>}
+                            <span className={cn("block truncate text-xs font-medium sm:hidden", s.tone === "red" ? "text-critical-ink" : s.tone === "amber" ? "text-warning-ink" : s.tone === "green" ? "text-good-ink" : "text-text-3")}>{PACING_LABEL[s.status]}</span>
+                          </>
                         ) : (
                           <>
                             <Link {...loadOnHover} href={`/clients/${r.clientId}?tab=budgets`} className="block truncate font-medium text-text hover:underline" title={r.clientName}>{r.clientName}</Link>
                             <span className="block truncate text-xs text-text-3 sm:hidden">{platformText(r)}</span>
                           </>
                         )}
-                        {adj.kind !== "NONE" && <span className={cn("block truncate text-xs font-medium sm:hidden", ADJ_TEXT[adj.tone])}>{adj.label}</span>}
+                        {!single && adj.kind !== "NONE" && <span className={cn("block truncate text-xs font-medium sm:hidden", ADJ_TEXT[adj.tone])}>{adj.label}</span>}
                       </div>
                     </div>
                   </td>
@@ -235,7 +263,14 @@ export function BudgetPacingTable({
                     {left === null ? <span className="font-normal text-text-3">—</span> : formatSignedMoney(left, money(r))}
                   </td>
                   <td className="hidden py-2.5 pr-5 pl-3 whitespace-nowrap sm:table-cell">
-                    <AdjustmentCell row={r} adj={adj} />
+                    {single ? (
+                      <span className="flex flex-col items-start gap-1">
+                        <PacingStatus status={s.status} label={PACING_LABEL[s.status]} message={s.message} />
+                        {adj.kind !== "NONE" && <AdjustmentCell row={r} adj={adj} />}
+                      </span>
+                    ) : (
+                      <AdjustmentCell row={r} adj={adj} />
+                    )}
                   </td>
                 </tr>
               );
@@ -248,6 +283,17 @@ export function BudgetPacingTable({
               </tr>
             )}
           </tbody>
+          {totalRow && (
+            <tfoot className="border-t-2 border-border font-semibold">
+              <tr>
+                <td className="py-2.5 pl-3 pr-1.5 sm:pl-5 sm:pr-3">Total</td>
+                <td className="px-1.5 py-2.5 text-right whitespace-nowrap sm:px-3">{totalRow.b === null ? "—" : cur(totalRow.b)}</td>
+                <td className="px-1.5 py-2.5 text-right whitespace-nowrap sm:px-3" title={totalRow.partial ? "Some accounts have no spend data yet" : undefined}>{totalRow.spent === null ? "—" : cur(totalRow.spent)}{totalRow.partial && totalRow.spent !== null && <span className="text-text-3">*</span>}</td>
+                <td className={cn("py-2.5 pl-1.5 pr-3 text-right whitespace-nowrap sm:px-3", totalRow.left !== null && totalRow.left < 0 && "text-critical-ink")}>{totalRow.left === null ? "—" : formatSignedMoney(totalRow.left, cur)}</td>
+                <td className="hidden sm:table-cell" />
+              </tr>
+            </tfoot>
+          )}
         </table>
       </div>
     </div>
