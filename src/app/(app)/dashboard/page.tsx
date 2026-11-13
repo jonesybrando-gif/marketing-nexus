@@ -24,7 +24,7 @@ import { NeedsAttention, type AttentionClient } from "@/components/dashboard/nee
 import { BudgetHealth } from "@/components/dashboard/budget-health";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Home" };
+export const metadata = { title: "Agency overview" };
 
 export default async function DashboardPage({ searchParams }: { searchParams: Promise<{ status?: string }> }) {
   const user = await requireAgencyStaff();
@@ -115,7 +115,7 @@ async function Home({ user }: { user: Awaited<ReturnType<typeof requireAgencySta
     <div className="mx-auto flex max-w-[1280px] flex-col gap-8">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Home</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Agency overview</h1>
           <p className="mt-1 text-sm text-text-2">
             {formatDate(month.from, { month: "long" })} so far · {clients.length} client{clients.length === 1 ? "" : "s"}
             {s.typicalAsOf && <> · data through {formatDate(s.typicalAsOf, { month: "short", day: "numeric" })}</>}

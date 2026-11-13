@@ -274,7 +274,8 @@ export function BudgetPacingTable({
                     {single ? (
                       <span className="flex flex-col items-start gap-1">
                         <PacingStatus status={s.status} label={PACING_LABEL[s.status]} message={s.message} />
-                        {adj.kind !== "NONE" && <AdjustmentCell row={r} adj={adj} />}
+                        {/* Daily budget guidance is for the people who can act on it, not client logins. */}
+                        {adj.kind !== "NONE" && editable[r.clientId] && <AdjustmentCell row={r} adj={adj} />}
                       </span>
                     ) : (
                       <AdjustmentCell row={r} adj={adj} />

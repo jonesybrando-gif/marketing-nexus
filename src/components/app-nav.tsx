@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { BarChart3, Bell, Building2, FileText, Gauge, Home, Menu as MenuIcon, Plug, Settings, Sparkles, X } from "lucide-react";
+import { BarChart3, Bell, Building2, FileText, Gauge, Home, Menu as MenuIcon, PanelLeftClose, PanelLeftOpen, Plug, Settings, Sparkles, X } from "lucide-react";
 import { cn } from "./ui/cn";
 import { LinkPending } from "./link-pending";
 import { loadOnHover } from "@/lib/link-hover";
@@ -26,7 +26,7 @@ export function isActive(pathname: string, href: string): boolean {
 }
 
 /** Sidebar / drawer links with a clear current-page state. */
-export function NavLinks({ items, onNavigate }: { items: NavItem[]; onNavigate?: () => void }) {
+export function NavLinks({ items, onNavigate, collapsed = false }: { items: NavItem[]; onNavigate?: () => void; collapsed?: boolean }) {
   const pathname = usePathname() ?? "";
   // The most specific match wins (a client login's /clients/<id> over nothing else).
   const hit = (i: NavItem) => [i.href, ...(i.match ?? [])].some((h) => isActive(pathname, h));
@@ -43,15 +43,21 @@ export function NavLinks({ items, onNavigate }: { items: NavItem[]; onNavigate?:
               onClick={onNavigate}
               {...loadOnHover}
               aria-current={active ? "page" : undefined}
+              title={collapsed ? label : undefined}
               className={cn(
-                "flex min-h-10 items-center gap-2 rounded-md px-3 py-2 text-sm whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/60",
+                "relative flex min-h-10 items-center gap-2 rounded-md py-2 text-sm whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/60",
+                collapsed ? "justify-center px-0" : "px-3",
                 active ? "bg-surface-2 font-semibold text-text shadow-[inset_0_0_0_1px_var(--border)]" : "text-text-2 hover:bg-surface-2 hover:text-text",
               )}
             >
               <Icon className={cn("h-4 w-4 shrink-0", active && "text-brand-text")} aria-hidden />
-              {label}
-              <LinkPending />
-              {count > 0 && (
+              <span className={cn(collapsed && "sr-only")}>{label}</span>
+              {!collapsed && <LinkPending />}
+              {collapsed && count > 0 && (
+                <span aria-hidden className="absolute top-1.5 right-2 h-1.5 w-1.5 rounded-full bg-brand" />
+              )}
+              {collapsed && count > 0 && <span className="sr-only">, {count} unread</span>}
+              {!collapsed && count > 0 && (
                 <span className="ml-auto text-xs font-semibold text-text-2 tabular">
                   <span aria-hidden>{count > 99 ? "99+" : count}</span>
                   <span className="sr-only">, {count} unread</span>
@@ -167,5 +173,43 @@ export function MobileShell({ brand, search, nav, account }: { brand: ReactNode;
         </div>
       )}
     </>
+  );
+}
+
+/** Cookie that remembers the collapsed sidebar, read on the server so the page renders at the right width. */
+export const SIDEBAR_COOKIE = "mn_sidebar";
+
+/**
+ * The agency sidebar (md and up): brand, search, the five sections and the
+ * account. Collapses to icons only; the choice is remembered per browser.
+ */
+export function DesktopSidebar({ brand, brandMark, search, searchIcon, nav, account, accountCompact, initialCollapsed }: { brand: ReactNode; brandMark: ReactNode; search: ReactNode; searchIcon: ReactNode; nav: NavItem[]; account: ReactNode; accountCompact: ReactNode; initialCollapsed: boolean }) {
+  const [collapsed, setCollapsed] = useState(initialCollapsed);
+  const toggle = () =>
+    setCollapsed((c) => {
+      document.cookie = `${SIDEBAR_COOKIE}=${c ? "open" : "collapsed"}; path=/; max-age=31536000; samesite=lax`;
+      return !c;
+    });
+  return (
+    <aside className={cn("hidden border-r border-border bg-surface transition-[width] duration-150 motion-reduce:transition-none md:sticky md:top-0 md:flex md:h-screen md:shrink-0 md:flex-col", collapsed ? "md:w-16" : "md:w-60")}>
+      <div className={cn("flex items-center gap-2 py-4", collapsed ? "flex-col px-2" : "px-4")}>
+        {collapsed ? brandMark : <div className="flex min-w-0 flex-1 items-center gap-2">{brand}</div>}
+        <button
+          type="button"
+          onClick={toggle}
+          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          aria-expanded={!collapsed}
+          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          className="inline-flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-text-3 hover:bg-surface-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/60"
+        >
+          {collapsed ? <PanelLeftOpen className="h-4 w-4" aria-hidden /> : <PanelLeftClose className="h-4 w-4" aria-hidden />}
+        </button>
+      </div>
+      <div className={cn("pb-3", collapsed ? "flex justify-center px-2" : "px-3")}>{collapsed ? searchIcon : search}</div>
+      <nav aria-label="Main" className="min-h-0 flex-1 overflow-y-auto px-2">
+        <NavLinks items={nav} collapsed={collapsed} />
+      </nav>
+      <div className="border-t border-border p-2">{collapsed ? accountCompact : account}</div>
+    </aside>
   );
 }

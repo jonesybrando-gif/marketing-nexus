@@ -88,6 +88,13 @@ export interface AiWebContext {
     /** Biggest moves, best first; change is positions gained (+) or lost (-). */
     movers: { keyword: string; position: number | null; change: number }[];
   } | null;
+  /** CallRail call tracking, when linked: totals and calls by source. */
+  calls?: {
+    totals: AiWebMetric[];
+    sources: { source: string; calls: AiWebMetric; firstTime: AiWebMetric; qualified: AiWebMetric }[];
+    /** Calls CallRail traced to paid ads (Google, Meta, Microsoft, Local Services). */
+    fromAds: { current: number; previous: number | null } | null;
+  } | null;
 }
 
 const VERDICT_NOTE: Record<Verdict, string> = {
@@ -219,6 +226,19 @@ export function buildAiContext(i: AiContextInput): string {
       for (const m of r.movers) lines.push(`- "${m.keyword}": now ${m.position === null ? "not in the top 100" : `position ${m.position}`} (${m.change > 0 ? `up ${m.change}` : `down ${-m.change}`} positions)`);
     } else lines.push("- No keyword rankings are tracked for this client.");
     lines.push("Website goals are key events counted by Google Analytics; ad conversions are counted by each ad platform. They overlap, so never add them together.");
+    const c = w.calls;
+    if (c) {
+      lines.push("", "## Phone calls (CallRail call tracking, same period)");
+      for (const x of c.totals) lines.push(`- ${line(x)}`);
+      if (c.fromAds) lines.push(`- Calls CallRail traced to paid ads: ${c.fromAds.current}${c.fromAds.previous === null ? "" : `; comparison ${c.fromAds.previous}`}`);
+      if (c.sources.length) {
+        lines.push("Calls by source:");
+        for (const x of c.sources) lines.push(`- ${x.source}: calls ${x.calls.value}${x.calls.changePct === null ? "" : ` (${pct(x.calls.changePct)})`}; first-time ${x.firstTime.value}; qualified ${x.qualified.value}`);
+      }
+      lines.push(
+        "Rules for calls: a call is not a lead or a conversion unless it is marked qualified (a good lead in CallRail). Ad platforms often count the same phone calls as conversions, so never add CallRail calls to ad conversions or leads; describe them side by side. Missed calls are calls nobody answered (or that went to voicemail).",
+      );
+    } else if (c === null) lines.push("", "- CallRail call tracking is not connected for this client.");
   }
 
   lines.push("", "## What the metrics mean (use these plain explanations when you mention a metric)");

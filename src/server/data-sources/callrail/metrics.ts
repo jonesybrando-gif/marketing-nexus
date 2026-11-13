@@ -181,6 +181,8 @@ export function callsToRows(calls: CallRailCall[], opts: { timeZone?: string | n
     const city = [clean(c.customer_city), clean(c.customer_state)].filter(Boolean).join(", ");
     if (city) dims.push(["city", city]);
     if (when) dims.push(["weekday", when.weekday], ["hour", when.hour]);
+    const tracking = clean(c.tracking_phone_number);
+    if (tracking) dims.push(["trackingNumber", tracking]);
     for (const tag of tagNames(c.tags)) dims.push(["tag", tag]);
     dims.push(["status", answered ? "Answered" : "Missed"]);
     for (const [dim, val] of dims) {

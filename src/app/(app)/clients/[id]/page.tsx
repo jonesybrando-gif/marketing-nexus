@@ -40,15 +40,17 @@ import { SeoTab } from "@/components/seo/seo-tab";
 import { NextStepsSection } from "@/components/next-steps/next-steps-section";
 import { OpportunitiesList } from "@/app/(app)/insights/opportunities";
 import { AnalyticsTab } from "@/components/analytics/analytics-tab";
+import { CallRailTab } from "@/components/callrail/callrail-tab";
 
 export const dynamic = "force-dynamic";
 
-// Report · Paid Media · SEO · Google Analytics · Budgets | Settings
+// Report · Paid Media · SEO · Google Analytics · CallRail · Budgets | Settings (agency staff only)
 const TABS = [
   { key: "report", label: "Report", group: 0 },
   { key: "paid", label: "Paid Media", group: 0 },
   { key: "seo", label: "SEO", group: 0 },
   { key: "analytics", label: "Google Analytics", group: 0 },
+  { key: "callrail", label: "CallRail", group: 0 },
   { key: "budgets", label: "Budgets", group: 0 },
   { key: "settings", label: "Settings", group: 3 },
 ] as const;
@@ -96,7 +98,9 @@ export default async function ClientPage({ params, searchParams }: { params: Pro
   const { client, preset, compareMode, range, cmpRange, pacing } = rep;
   const isDemo = client.accounts.some((a) => a.isDemo);
   const asked = sp.tab ? LEGACY_TAB[sp.tab] ?? sp.tab : "report";
-  const tab: Tab = staff && (TABS.some((t) => t.key === asked) || (SUB_PAGES as readonly string[]).includes(asked)) ? (asked as Tab) : "report";
+  // Client logins get the reporting tabs only (read-only); Settings and its sub-pages are for agency staff.
+  const visibleTabs = TABS.filter((t) => staff || t.key !== "settings");
+  const tab: Tab = visibleTabs.some((t) => t.key === asked) || (staff && (SUB_PAGES as readonly string[]).includes(asked)) ? (asked as Tab) : "report";
   const base = `/clients/${id}`;
   const tabHref = (t: Tab) => {
     const q = new URLSearchParams(Object.entries(sp).filter(([k, v]) => v && k !== "tab" && k !== "line" && k !== "edit") as [string, string][]);
@@ -170,33 +174,44 @@ export default async function ClientPage({ params, searchParams }: { params: Pro
     </div>
   );
 
-  if (!staff) {
-    // Client logins see their own logo and name at the top, never the agency's.
-    const clientHeader = (
-      <ClientReportHeader
-        name={client.name}
-        logoUrl={client.logoUrl}
-        kicker={rep.template.title}
-        isDemo={isDemo}
-        period={
-          <>
-            {rangeLabel(preset, range)}: {formatDate(range.from)} – {formatDate(range.to, { month: "short", day: "numeric", year: "numeric" })}
-            {cmpRange && <> · compared with {formatDate(cmpRange.from)} – {formatDate(cmpRange.to)}</>}
-          </>
-        }
-        below={<DataFreshness rep={rep} staff={false} />}
-        actions={
-          <>
-            <div className="hidden md:block"><RangeControls preset={preset} compare={compareMode} from={range.from} to={range.to} /></div>
-            <div className="md:hidden"><CompactRangeControls label={shortRangeLabel(range.from, range.to)} preset={preset} compare={compareMode} from={range.from} to={range.to} /></div>
-            <ExportButtons base={exportBase} query={sp} />
-          </>
-        }
-      />
-    );
-    return (
-      <div className="mx-auto flex max-w-[1400px] flex-col gap-6">
-        {clientHeader}
+  const tabNav = (
+    <nav className="sticky top-12 z-20 -mx-4 -mb-px flex gap-1 overflow-x-auto border-b border-border bg-background/95 px-4 backdrop-blur max-md:-mt-3 md:static md:mx-0 md:border-b-0 md:bg-transparent md:px-0 md:backdrop-blur-none" aria-label="Client sections">
+      {visibleTabs.map((t, i) => (
+        <span key={t.key} className={`flex items-center ${t.group === 3 ? "md:ml-auto" : ""}`}>
+          {i > 0 && t.group !== visibleTabs[i - 1].group && t.group !== 3 && <span aria-hidden className="mx-1.5 h-4 w-px bg-border max-md:hidden" />}
+          <Link
+            href={tabHref(t.key)}
+            scroll={false}
+            {...loadOnHover}
+            aria-current={tab === t.key ? "page" : undefined}
+            className={`inline-flex min-h-10 items-center border-b-2 px-3 py-2 text-sm whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand/60 ${tab === t.key ? "border-brand font-medium text-text" : "border-transparent text-text-2 hover:text-text"}`}
+          >
+            {t.label}
+            <LinkPending className="ml-1.5" />
+          </Link>
+        </span>
+      ))}
+    </nav>
+  );
+
+  const content = (
+    <>
+      {staff && (
+        <Suspense fallback={null}>
+          {/* Critical alerts only, so they're never missed; the full list is in AI Insights. */}
+          <ClientAlertsStrip clientId={id} user={user} criticalOnly />
+        </Suspense>
+      )}
+
+      {tab === "report" && staff && (
+        <Suspense fallback={<SectionSkeleton tiles={6} cards={1} tallFirst={false} />}>
+          <WithReport report={loadFull()}>
+            {(rep) => <ClientReportTab rep={rep} staff canEdit={canEdit} editing={sp.edit === "1"} basePath={base} query={sp} editHref={editHref} doneHref={tabHref("report")} />}
+          </WithReport>
+        </Suspense>
+      )}
+
+      {tab === "report" && !staff && (
         <Suspense fallback={<SectionSkeleton tiles={6} cards={2} />}>
           <WithReport report={loadFull()}>
             {(rep) => (
@@ -208,54 +223,15 @@ export default async function ClientPage({ params, searchParams }: { params: Pro
             )}
           </WithReport>
         </Suspense>
-      </div>
-    );
-  }
-
-  return (
-    <div className="mx-auto flex max-w-[1400px] flex-col gap-4">
-      {/* Header, date range and tabs stay in view while scrolling (desktop); on phones only the tabs stick, under the top bar. */}
-      <div className="max-md:contents md:sticky md:top-0 md:z-20 md:-mx-10 md:-mt-8 md:flex md:flex-col md:gap-3 md:border-b md:border-border md:bg-background/95 md:px-10 md:pt-8 md:backdrop-blur">
-        {header}
-        <nav className="sticky top-12 z-20 -mx-4 -mb-px flex gap-1 overflow-x-auto border-b border-border bg-background/95 px-4 backdrop-blur max-md:-mt-3 md:static md:mx-0 md:border-b-0 md:bg-transparent md:px-0 md:backdrop-blur-none" aria-label="Client sections">
-          {TABS.map((t, i) => (
-            <span key={t.key} className={`flex items-center ${t.group === 3 ? "md:ml-auto" : ""}`}>
-              {i > 0 && t.group !== TABS[i - 1].group && t.group !== 3 && <span aria-hidden className="mx-1.5 h-4 w-px bg-border max-md:hidden" />}
-              <Link
-                href={tabHref(t.key)}
-                scroll={false}
-                {...loadOnHover}
-                aria-current={tab === t.key ? "page" : undefined}
-                className={`inline-flex min-h-10 items-center border-b-2 px-3 py-2 text-sm whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand/60 ${tab === t.key ? "border-brand font-medium text-text" : "border-transparent text-text-2 hover:text-text"}`}
-              >
-                {t.label}
-                <LinkPending className="ml-1.5" />
-              </Link>
-            </span>
-          ))}
-        </nav>
-      </div>
-
-      <Suspense fallback={null}>
-        {/* Critical alerts only, so they're never missed; the full list is in AI Insights. */}
-        <ClientAlertsStrip clientId={id} user={user} criticalOnly />
-      </Suspense>
-
-      {tab === "report" && (
-        <Suspense fallback={<SectionSkeleton tiles={6} cards={1} tallFirst={false} />}>
-          <WithReport report={loadFull()}>
-            {(rep) => <ClientReportTab rep={rep} staff canEdit={canEdit} editing={sp.edit === "1"} basePath={base} query={sp} editHref={editHref} doneHref={tabHref("report")} />}
-          </WithReport>
-        </Suspense>
       )}
 
       {tab === "paid" && client.accounts.length === 0 && (
         <>
           <Suspense fallback={<SectionSkeleton cards={1} tallFirst={false} />}>
-            <WithReport report={loadFull()}>{(rep) => <NoAccountsState rep={rep} staff />}</WithReport>
+            <WithReport report={loadFull()}>{(rep) => <NoAccountsState rep={rep} staff={staff} />}</WithReport>
           </Suspense>
           {/* Notes on the data work without ad accounts too (SEO- or analytics-only clients). */}
-          <Annotations clientId={id} agencyId={user.agencyId} defaultDate={rep.range.to} range={rep.range} card />
+          {staff && <Annotations clientId={id} agencyId={user.agencyId} defaultDate={rep.range.to} range={rep.range} card />}
         </>
       )}
 
@@ -267,7 +243,8 @@ export default async function ClientPage({ params, searchParams }: { params: Pro
                 rep={rep}
                 basePath={base}
                 params={sp}
-                annotations={<Annotations clientId={id} agencyId={user.agencyId} defaultDate={rep.range.to} range={rep.range} />}
+                staff={staff}
+                annotations={staff ? <Annotations clientId={id} agencyId={user.agencyId} defaultDate={rep.range.to} range={rep.range} /> : null}
               />
             )}
           </WithReport>
@@ -277,6 +254,8 @@ export default async function ClientPage({ params, searchParams }: { params: Pro
       {tab === "seo" && <SeoTab clientId={id} range={range} cmpRange={cmpRange} canEdit={canEdit} settingsHref={tabHref("settings")} />}
 
       {tab === "analytics" && <AnalyticsTab clientId={id} range={range} cmpRange={cmpRange} canEdit={canEdit} />}
+
+      {tab === "callrail" && <CallRailTab clientId={id} currency={client.currency} today={rep.today} range={range} cmpRange={cmpRange} compareMode={compareMode} canEdit={canEdit} staff={staff} />}
 
       {tab === "budgets" && (
         <>
@@ -288,14 +267,14 @@ export default async function ClientPage({ params, searchParams }: { params: Pro
               <WithReport report={loadFull()}>{(rep) => <HistorySection rep={rep} hideEmpty bare />}</WithReport>
             </Suspense>
           </CollapsibleSection>
-          <Link href={keep(`${base}/budgets`)} className="flex min-h-10 flex-col gap-1 self-start rounded-xl border border-border bg-surface px-5 py-4 hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/60">
+          {staff && <Link href={keep(`${base}/budgets`)} className="flex min-h-10 flex-col gap-1 self-start rounded-xl border border-border bg-surface px-5 py-4 hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/60">
             <span className="flex items-center gap-2 text-sm font-semibold"><Wallet className="h-4 w-4 text-text-2" aria-hidden /> Set up budgets</span>
             <span className="text-xs text-text-3">Monthly amounts, how they&apos;re split across accounts and campaigns, and when pacing warns you.</span>
-          </Link>
+          </Link>}
         </>
       )}
 
-      {tab === "dashboards" && (
+      {tab === "dashboards" && staff && (
         <>
           <Suspense fallback={<SectionSkeleton cards={1} tallFirst={false} />}>
             <WithReport report={loadFull()}>{(rep) => <NextStepsSection rep={rep} canEdit={canEdit} />}</WithReport>
@@ -319,7 +298,7 @@ export default async function ClientPage({ params, searchParams }: { params: Pro
         </>
       )}
 
-      {tab === "insights" && (
+      {tab === "insights" && staff && (
         // One place for every AI-written insight, with a clear switch for what the client sees.
         <Card>
           <CardHeader>
@@ -346,7 +325,7 @@ export default async function ClientPage({ params, searchParams }: { params: Pro
         </Card>
       )}
 
-      {tab === "settings" && (
+      {tab === "settings" && staff && (
         <>
           <Suspense fallback={<SectionSkeleton cards={1} tallFirst={false} />}>
             <WithReport report={loadFull()}>
@@ -378,6 +357,51 @@ export default async function ClientPage({ params, searchParams }: { params: Pro
           </div>
         </>
       )}
+    </>
+  );
+
+  if (!staff) {
+    // Client logins: their own logo and name above the tabs (the agency's branding is in the page header).
+    const clientHeader = (
+      <ClientReportHeader
+        name={client.name}
+        logoUrl={client.logoUrl}
+        kicker={rep.template.title}
+        isDemo={isDemo}
+        period={
+          <>
+            {rangeLabel(preset, range)}: {formatDate(range.from)} – {formatDate(range.to, { month: "short", day: "numeric", year: "numeric" })}
+            {cmpRange && <> · compared with {formatDate(cmpRange.from)} – {formatDate(cmpRange.to)}</>}
+          </>
+        }
+        below={<DataFreshness rep={rep} staff={false} />}
+        actions={
+          <>
+            <div className="hidden md:block"><RangeControls preset={preset} compare={compareMode} from={range.from} to={range.to} /></div>
+            <div className="md:hidden"><CompactRangeControls label={shortRangeLabel(range.from, range.to)} preset={preset} compare={compareMode} from={range.from} to={range.to} /></div>
+            <ExportButtons base={exportBase} query={sp} />
+          </>
+        }
+      />
+    );
+    return (
+      <div className="mx-auto flex max-w-[1400px] flex-col gap-4">
+        {clientHeader}
+        {tabNav}
+        {content}
+      </div>
+    );
+  }
+
+  return (
+    <div className="mx-auto flex max-w-[1400px] flex-col gap-4">
+      {/* Header, date range and tabs stay in view while scrolling (desktop); on phones only the tabs stick, under the top bar. */}
+      <div className="max-md:contents md:sticky md:top-0 md:z-20 md:-mx-10 md:-mt-8 md:flex md:flex-col md:gap-3 md:border-b md:border-border md:bg-background/95 md:px-10 md:pt-8 md:backdrop-blur">
+        {header}
+        {tabNav}
+      </div>
+
+      {content}
     </div>
   );
 }

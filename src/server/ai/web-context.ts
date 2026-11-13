@@ -12,6 +12,9 @@ import { keywordRankTable } from "../metrics/rankings";
 
 const ANALYTICS = ["ga4.sessions", "ga4.keyEvents", "ga4.engagementRate", "ga4.totalRevenue"];
 const SEARCH = ["gsc.clicks", "gsc.impressions", "gsc.ctr", "gsc.position"];
+const CALLS = ["callrail.calls", "callrail.answered", "callrail.missed", "callrail.missRate", "callrail.firstTimeCallers", "callrail.leads", "callrail.avgDuration"];
+const SOURCE_METRICS = ["callrail.calls", "callrail.firstTimeCallers", "callrail.leads"];
+const MAX_SOURCES = 6;
 const MAX_CHANNELS = 6;
 const MAX_MOVERS = 6;
 
@@ -34,14 +37,16 @@ function metric(key: string, cur: number | null, prev: number | null | undefined
 }
 
 /** Returns null when the client has none of these sources connected. */
-export async function webContextFor(clientId: string, currency: string, range: Range, cmp: Range | null): Promise<AiWebContext | null> {
-  const keys = [...ANALYTICS, ...SEARCH];
-  const [cur, prev, channelsNow, channelsBefore, ranks] = await Promise.all([
+export async function webContextFor(clientId: string, currency: string, range: Range, cmp: Range | null, opts: { callrail?: boolean; callsFromAds?: { current: number; previous: number | null } | null } = {}): Promise<AiWebContext | null> {
+  const keys = [...ANALYTICS, ...SEARCH, ...(opts.callrail ? CALLS : [])];
+  const [cur, prev, channelsNow, channelsBefore, ranks, sourcesNow, sourcesBefore] = await Promise.all([
     metricTotals(clientId, keys, range.from, range.to),
     cmp ? metricTotals(clientId, keys, cmp.from, cmp.to) : Promise.resolve(null),
     metricBreakdown(clientId, "channel", ["ga4.sessions", "ga4.keyEvents"], range.from, range.to, MAX_CHANNELS),
     cmp ? metricBreakdown(clientId, "channel", ["ga4.sessions", "ga4.keyEvents"], cmp.from, cmp.to, 50) : Promise.resolve([]),
     keywordRankTable(clientId, { to: range.to, days: 1, changeDays: Math.min(Math.max(diffDays(range.from, range.to) + 1, 7), 90) }).catch(() => []),
+    opts.callrail ? metricBreakdown(clientId, "source", SOURCE_METRICS, range.from, range.to, MAX_SOURCES) : Promise.resolve([]),
+    opts.callrail && cmp ? metricBreakdown(clientId, "source", SOURCE_METRICS, cmp.from, cmp.to, 50) : Promise.resolve([]),
   ]);
 
   const has = (ks: string[]) => ks.some((k) => cur[k] !== null && cur[k] !== undefined);
@@ -80,6 +85,20 @@ export async function webContextFor(clientId: string, currency: string, range: R
 
   const analytics = has(ANALYTICS) ? pick(ANALYTICS) : null;
   const search = has(SEARCH) ? pick(SEARCH) : null;
-  if (!analytics && !search && !rankings) return null;
-  return { analytics, channels, search, rankings };
+  // CallRail: null when not linked (the prompt says "not connected"), figures when it is; undefined when not asked.
+  let calls: AiWebContext["calls"] = opts.callrail === undefined ? undefined : null;
+  if (opts.callrail) {
+    const srcBefore = new Map(sourcesBefore.map((r) => [r.value, r.metrics]));
+    calls = {
+      totals: pick(CALLS),
+      sources: sourcesNow.map((r) => {
+        const b = cmp ? (srcBefore.get(r.value) ?? {}) : undefined;
+        const m = (k: string) => metric(k, r.metrics[k] ?? null, b ? (b[k] ?? null) : undefined, currency);
+        return { source: r.value, calls: m("callrail.calls"), firstTime: m("callrail.firstTimeCallers"), qualified: m("callrail.leads") };
+      }),
+      fromAds: opts.callsFromAds ?? null,
+    };
+  }
+  if (!analytics && !search && !rankings && !calls) return null;
+  return { analytics, channels, search, rankings, calls };
 }

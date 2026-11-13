@@ -20,7 +20,7 @@ export const callrailTemplate: DashboardTemplateDef = {
     { id: "cr-answered", kind: "kpi", metrics: ["callrail.answered"], x: 2, y: 5, w: 2, h: 2 },
     { id: "cr-missed", kind: "kpi", metrics: ["callrail.missed"], x: 4, y: 5, w: 2, h: 2 },
     { id: "cr-first-time", kind: "kpi", title: "First time calls", metrics: ["callrail.firstTimeCallers"], x: 6, y: 5, w: 2, h: 2 },
-    { id: "cr-leads", kind: "kpi", metrics: ["callrail.leads"], x: 8, y: 5, w: 2, h: 2 },
+    { id: "cr-leads", kind: "kpi", title: "Qualified calls", metrics: ["callrail.leads"], x: 8, y: 5, w: 2, h: 2 },
     { id: "cr-avg-duration", kind: "kpi", title: "Avg duration", metrics: ["callrail.avgDuration"], x: 10, y: 5, w: 2, h: 2 },
     { id: "cr-call-log", kind: "calllog", title: "Calls", x: 0, y: 7, w: 12, h: 8 },
 
@@ -41,13 +41,15 @@ export const callrailTemplate: DashboardTemplateDef = {
     { id: "cr-weekday-bar", kind: "bar", title: "Calls by day of week", dimension: "weekday", metrics: ["callrail.calls"], x: 4, y: 37, w: 4, h: 5 },
     { id: "cr-hour-bar", kind: "bar", title: "Calls by hour of day", dimension: "hour", metrics: ["callrail.calls"], x: 8, y: 37, w: 4, h: 5 },
 
-    { id: "cr-forms-heading", kind: "text", text: "## Forms", x: 0, y: 42, w: 12, h: 1 },
-    { id: "cr-top-referrers", kind: "bar", title: "Top referrers", dimension: "source", metrics: ["callrail.forms"], x: 0, y: 43, w: 4, h: 5 },
-    { id: "cr-submissions-trend", kind: "line", title: "Submissions", metrics: ["callrail.forms"], x: 4, y: 43, w: 8, h: 5 },
-    { id: "cr-first-forms", kind: "kpi", title: "First time submissions", metrics: ["callrail.firstForms"], x: 0, y: 48, w: 3, h: 2 },
-    { id: "cr-forms", kind: "kpi", title: "Submissions", metrics: ["callrail.forms"], x: 3, y: 48, w: 3, h: 2 },
-    { id: "cr-form-leads", kind: "kpi", title: "Leads", metrics: ["callrail.formLeads"], x: 6, y: 48, w: 3, h: 2 },
-    { id: "cr-quoted", kind: "kpi", title: "Quoted total", metrics: ["callrail.formValue"], x: 9, y: 48, w: 3, h: 2 },
-    { id: "cr-form-log", kind: "formlog", title: "Form submissions", x: 0, y: 50, w: 12, h: 6 },
+    { id: "cr-tracking-table", kind: "table", title: "Calls by tracking number", dimension: "trackingNumber", metrics: ["callrail.calls", "callrail.answered", "callrail.missed", "callrail.firstTimeCallers", "callrail.leads"], x: 0, y: 42, w: 12, h: 5 },
+
+    { id: "cr-forms-heading", kind: "text", text: "## Forms", x: 0, y: 47, w: 12, h: 1 },
+    { id: "cr-top-referrers", kind: "bar", title: "Top referrers", dimension: "source", metrics: ["callrail.forms"], x: 0, y: 48, w: 4, h: 5 },
+    { id: "cr-submissions-trend", kind: "line", title: "Submissions", metrics: ["callrail.forms"], x: 4, y: 48, w: 8, h: 5 },
+    { id: "cr-first-forms", kind: "kpi", title: "First time submissions", metrics: ["callrail.firstForms"], x: 0, y: 53, w: 3, h: 2 },
+    { id: "cr-forms", kind: "kpi", title: "Submissions", metrics: ["callrail.forms"], x: 3, y: 53, w: 3, h: 2 },
+    { id: "cr-form-leads", kind: "kpi", title: "Leads", metrics: ["callrail.formLeads"], x: 6, y: 53, w: 3, h: 2 },
+    { id: "cr-quoted", kind: "kpi", title: "Quoted total", metrics: ["callrail.formValue"], x: 9, y: 53, w: 3, h: 2 },
+    { id: "cr-form-log", kind: "formlog", title: "Form submissions", x: 0, y: 55, w: 12, h: 6 },
   ],
 };
