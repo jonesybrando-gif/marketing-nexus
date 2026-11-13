@@ -35,7 +35,7 @@ function report(): ClientReport {
 }
 
 const brand = { name: "Test Agency", color: "#4f46e5", header: null, footer: null } as never;
-const summary = { overview: "Para.", working: ["Good."], notWorking: ["Bad."], recommendations: ["Cut keywords."], nextSteps: ["We'll cut keywords."], source: "auto" as const };
+const summary = { takeaway: "Leads rose.", happened: "Para.", meaning: "Good and bad.", recommendations: ["Cut keywords."], nextSteps: ["We'll cut keywords."], source: "auto" as const };
 
 describe("client report PDF", () => {
   it("renders the client and internal versions with At a glance first", async () => {

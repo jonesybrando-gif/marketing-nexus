@@ -139,11 +139,14 @@ describe("performance insights", () => {
 
   it("is part of the automatic executive summary", () => {
     const s = autoExecutiveSummary(base);
-    expect(s.overview).toContain("ABC Plumbing's ads were shown");
-    // The best campaign has enough results to be named in the headline.
-    expect(s.overview).toContain("Emergency (Google Ads) did best, at $62.50 per result.");
-    expect(s.working.length).toBeGreaterThan(0);
+    // The headline result is the takeaway; the rest of the figures are "What happened?", never repeating it.
+    expect(s.takeaway.length).toBeGreaterThan(0);
+    expect(s.happened).toContain("ABC Plumbing's ads were shown");
+    expect(s.happened).not.toContain(s.takeaway);
+    expect(`${s.takeaway} ${s.happened}`).toContain("Emergency (Google Ads) did best, at $62.50 per result.");
+    expect(s.meaning.length).toBeGreaterThan(0);
     expect(s.recommendations.length).toBeGreaterThan(0);
+    expect(s.recommendations.length).toBeLessThanOrEqual(3);
     // Client-facing next steps, in agency voice, one per recommendation.
     expect(s.nextSteps.length).toBe(s.recommendations.length);
     expect(s.nextSteps.every((x) => x.startsWith("We'll"))).toBe(true);

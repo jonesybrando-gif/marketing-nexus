@@ -250,8 +250,8 @@ export async function renderClientReportPdf(
     sectionTitle(doc, "This period in brief");
     // The client's copy lists only next steps a person approved, never the AI's drafts.
     const es = opts.internal ? opts.executiveSummary : { ...opts.executiveSummary, nextSteps: opts.clientNextSteps ?? [] };
-    for (const para of es.overview.split(/\n{2,}/)) {
-      paragraph(doc, para, { size: 10, color: C.text });
+    if (es.takeaway.trim()) {
+      paragraph(doc, es.takeaway, { size: 10.5, color: C.text });
       doc.moveDown(0.5);
     }
     const list = (title: string, items: string[], numbered = false) => {
@@ -266,7 +266,17 @@ export async function renderClientReportPdf(
       });
     };
     // The client's copy shows "What we're doing next" (agency voice) instead of the agency's recommendations, or nothing when empty.
-    for (const sec of summaryOutline(es, !opts.internal)) list(sec.title, sec.items, sec.numbered);
+    // What happened?, What does this mean?, then What should we do next? (the client's copy: approved next steps only).
+    for (const sec of summaryOutline(es, !opts.internal)) {
+      if (sec.text) {
+        doc.moveDown(0.3);
+        ensureSpace(doc, 40);
+        doc.font("Helvetica-Bold").fontSize(10).fillColor(C.text).text(pdfText(sec.title), doc.page.margins.left, doc.y);
+        doc.moveDown(0.2);
+        paragraph(doc, sec.text, { size: 9.5, color: C.text });
+        doc.moveDown(0.25);
+      } else list(sec.title, sec.items, sec.numbered);
+    }
     doc.moveDown(0.3);
     paragraph(doc, `${es.source === "ai" ? "Written by AI" : "Worked out automatically"} from the figures in this report.${opts.internal ? " Recommendations are suggestions; nothing has been changed in the ad accounts." : ""}`, { size: 7.5 });
     doc.moveDown(1);

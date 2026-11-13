@@ -133,34 +133,44 @@ export async function draftReportSummary(data: string, opts: { agencyName: strin
 // --- Executive summary ------------------------------------------------------
 
 const ExecSummarySchema = z.object({
-  overview: z.string().describe("The headline paragraphs, separated by a blank line"),
-  working: z.array(z.string()).describe("What's working: one specific finding per item, each citing its figures"),
-  notWorking: z.array(z.string()).describe("What isn't working or needs attention: one specific finding per item, each citing its figures"),
-  recommendations: z.array(z.string()).describe("Strategic recommendations, most important first: what to do, where, and why, citing the figures"),
-  nextSteps: z.array(z.string()).describe("The same recommendations rewritten for the client as what the agency will do next, in the agency's voice, e.g. \"We'll review…\", \"We'll move…\""),
+  takeaway: z.string().describe("One or two sentences: the single most important takeaway, shown while the summary is collapsed"),
+  happened: z.string().describe("What happened? 2 to 4 sentences, 40 to 70 words"),
+  meaning: z.string().describe("What does this mean? 2 to 4 sentences, 40 to 70 words, plain English"),
+  recommendations: z.array(z.string()).describe("What should we do next? At most three specific actions, most important first, each with why it matters"),
+  nextSteps: z.array(z.string()).describe("The same actions rewritten as what the agency will do next, in the agency's voice, e.g. \"We'll move…\""),
 });
 export type ExecSummaryDraft = z.infer<typeof ExecSummarySchema>;
 
+/**
+ * The report's AI Executive Summary: three questions (What happened? What
+ * does this mean? What should we do next?) plus a one-line takeaway for the
+ * collapsed view, written for a business owner rather than a marketer.
+ */
 export async function draftExecutiveSummary(data: string, opts: { agencyName: string; days: number }): Promise<ExecSummaryDraft> {
-  const short = opts.days <= 10;
   const out = await generate(
     ExecSummarySchema,
-    `Write the executive summary at the top of this client's report, from ${opts.agencyName} to the client, covering exactly the reporting period in the data. It must answer, in this order: what happened, how performance compares with the comparison period, what it means for the business, and what should happen next. It should read like a knowledgeable strategist talking to a business owner, not a list of numbers, and be quick to scan.
+    `Write the executive summary at the top of this client's report, from ${opts.agencyName} to the business owner, for exactly the reporting period in the data. Write like a knowledgeable marketing advisor explaining results to a client in a meeting: conversational, plain English, focused on what it means for the business. The whole summary (happened + meaning + steps) should be about 150 to 250 words, aiming for around 180, and readable in a minute.
 
-overview (shown as "Performance overview"): ${short ? "one paragraph of 50 to 90 words" : "one or two short paragraphs, 80 to 140 words in total"}. Say what happened in plain terms: the results (from the Results section) and what each cost, how they compare with the comparison period, and the budget position if the data covers it. Cover website and organic search briefly when that data is present.
-working and notWorking (shown together as "What the data tells us"): 1 to 2 items each, 3 in total at most. Each is one insight that explains why performance changed or what a result means for the business (more enquiries for less money, budget running out early, a channel carrying the results, a tracking gap that hides results), citing its figures. working = good news; notWorking = problems, risks and inefficiencies. Don't repeat the overview's figures without adding meaning, and don't make two items say the same thing.
-recommendations (shown as "Recommended next steps"): 2 to 3 specific actions, most important first. Each names the campaign, platform or setting, says what to change and why, citing the figures. Recommend only what the data supports, and say when a test is needed before committing.
+takeaway: one or two sentences with the single most important point (for example "You got 42 leads this month, 8 more than last month, and each one cost less."). It is shown on its own while the summary is collapsed, so the sections below must NOT repeat it word for word.
 
-Separate what the data confirms from possible explanations: state confirmed findings plainly; mark explanations the data doesn't prove with "may" or "possibly". The agency's dated notes, when present, can explain a change that lines up with a note's date; say so as a possibility. Missing or "not reported" figures are unknown, never zero: say what's missing rather than drawing a conclusion from it. Avoid generic advice that would fit any client.
+happened ("What happened?"): 2 to 4 sentences, 40 to 70 words. The most important results and what was spent, compared with the previous period, and whether things improved, declined or held steady. Only the most meaningful numbers, in this order of importance: sales, bookings or appointments when tracked; qualified leads and enquiries; phone calls and form submissions; cost per lead or customer; ad spend and budget; website visits; other ad and search figures only when they explain an outcome.
 
-nextSteps: the same recommendations, in the same order, rewritten as what ${opts.agencyName} will do next, in the agency's voice and plain English ("We'll review…", "We'll move…", "We'll check…"). The client reads these, so leave out internal detail and keep each to one sentence.
+meaning ("What does this mean?"): 2 to 4 sentences, 40 to 70 words. Interpret the results: is marketing becoming more or less effective, are leads getting more or less expensive, what is producing the best results, and any real concern or opportunity. Translate metrics into consequences (not "CTR fell 17% and CPC rose 12%" but "Fewer people are clicking your ads and each visit costs more, which can make leads more expensive").
 
-If there aren't enough results to judge something, say so in the relevant list rather than inventing a finding. Never say or imply that the agency has already changed anything; describe causes only where the figures show them, otherwise use "may". Write to the client ("your ads" is fine), without greetings or a sign-off. Each list item is one or two sentences of plain text with no leading bullet or number.`,
+recommendations ("What should we do next?"): at most three, most important first, each one or two short sentences saying what to do and why it matters, backed by the data (for example "Move more of the budget to the Emergency Repairs campaign, which brings in leads for about half the cost of the others."). Never generic advice like "continue optimizing campaigns". If nothing needs to change, give a single item saying so and why, rather than inventing actions.
+
+nextSteps: the same items, in the same order, as what ${opts.agencyName} will do next ("We'll move…", "We'll check…"), one sentence each, with no internal detail.
+
+Combine every source in the data (each ad platform, phone calls, website, organic search, budget) into one explanation of overall marketing performance; don't summarize each platform separately. For example, if ad clicks rose but tracked calls fell, say that more people visited without more of them calling.
+
+Plain language: avoid jargon. Say "people who clicked" or "click rate" rather than CTR, "cost per click" rather than CPC, "cost per lead" or "cost per result" rather than CPA, "sales credited to the ads for each dollar spent (not profit)" rather than ROAS, "times the ads were shown" rather than impressions, and avoid "attribution", "impression share", "optimization". Call results by what is actually tracked (leads, calls, bookings, sales, or "results" when the data doesn't say); never call every conversion a lead or a sale.
+
+Accuracy: use only figures in the data. State confirmed findings plainly and mark possible explanations with "may" or "possibly"; the agency's dated notes can be a possible cause when dates line up. Missing or "not reported" figures are unknown, never zero; when something important is missing (call tracking not connected, revenue not tracked, results still being counted, too little data for a trend) say so simply, for example "We can see how many enquiries the ads produced, but not yet how many became paying customers." Never add calls, ad conversions and website goals together; they can count the same customer. Never say or imply the agency already changed anything. No greetings or sign-off; list items are plain text with no leading bullet or number.`,
     data,
     "medium",
   );
-  const clean = (xs: string[]) => xs.map((x) => x.replace(/^\s*(?:[-•*]|\d+[.)])\s*/, "").trim()).filter(Boolean);
-  return { overview: out.overview.trim(), working: clean(out.working), notWorking: clean(out.notWorking), recommendations: clean(out.recommendations), nextSteps: clean(out.nextSteps ?? []) };
+  const clean = (xs: string[]) => xs.map((x) => x.replace(/^\s*(?:[-•*]|\d+[.)])\s*/, "").trim()).filter(Boolean).slice(0, 3);
+  return { takeaway: out.takeaway.trim(), happened: out.happened.trim(), meaning: out.meaning.trim(), recommendations: clean(out.recommendations), nextSteps: clean(out.nextSteps ?? []) };
 }
 
 // --- Client email -----------------------------------------------------------
