@@ -3,9 +3,12 @@ import { after } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "./db";
 import type { ClientReport } from "./client-report";
-import { aiContextForReport, contextInput } from "./ai/context";
+import { aiContextForReport, contextInput, summaryChannels } from "./ai/context";
 import { AI_MODEL, aiConfigured, draftExecutiveSummary } from "./ai/assistant";
-import { autoExecutiveSummary, fromLegacySummary, MAX_STEPS, type ExecutiveSummaryContent } from "@/lib/exec-summary";
+import { autoExecutiveSummary, fromLegacySummary, MAX_STEPS, type ChannelUpdate, type ExecutiveSummaryContent } from "@/lib/exec-summary";
+
+/** At most this many "By channel" updates. */
+const MAX_CHANNELS = 10;
 import { diffDays } from "@/lib/pacing/dates";
 
 // The executive summary at the top of a report, for whatever date range is
@@ -23,8 +26,10 @@ const TTL_MS = 24 * 3600_000;
  */
 export type ExecSummary = ExecutiveSummaryContent & { source: "ai" | "auto" | "edited"; notes?: string; edited?: boolean };
 export const MAX_NOTES = 2000;
-/** Bumped when the stored shape changes, so older cached summaries are rewritten. 4 = the three questions. */
-const VERSION = 4;
+/** Bumped when the stored shape changes, so older cached summaries are rewritten. 4 = the three questions, 5 = plus "By channel". */
+const VERSION = 5;
+/** Same shape as the current version (channels optional): still shown when edited or approved. */
+const COMPATIBLE = [4, 5];
 /** The previous format (overview, what's working…): still shown to clients when it was approved. */
 const LEGACY_VERSION = 3;
 
@@ -55,13 +60,23 @@ const extras = (c: StoredContent): Pick<ExecSummary, "notes" | "edited"> => ({
 const isEdited = (c: StoredContent) => typeof c.editedAt === "string";
 const sourceOf = (c: StoredContent): ExecSummary["source"] => (c.origin === "auto" ? "edited" : "ai");
 
+/** Stored "By channel" updates, or null. */
+function channelList(v: unknown): ChannelUpdate[] | null {
+  if (!Array.isArray(v)) return null;
+  const out = v
+    .filter((x): x is { channel: string; update: string } => !!x && typeof x === "object" && typeof (x as Record<string, unknown>).channel === "string" && typeof (x as Record<string, unknown>).update === "string")
+    .map((x) => ({ channel: x.channel.slice(0, 60), update: x.update.slice(0, 600) }))
+    .slice(0, MAX_CHANNELS);
+  return out.length ? out : null;
+}
+
 /** A saved summary in the current format; with `legacy`, also an earlier-format one, read as the three questions. */
 function parseStored(c: StoredContent, rep: ClientReport, opts: { legacy?: boolean } = {}): ExecutiveSummaryContent | null {
   const s = c.summary;
   if (c.compare !== compareKey(rep) || !s) return null;
   const steps = (v: unknown) => (strings(v) ? v.slice(0, MAX_STEPS) : []);
-  if (c.v === VERSION && typeof s.takeaway === "string" && typeof s.happened === "string" && typeof s.meaning === "string") {
-    return { takeaway: s.takeaway, happened: s.happened, meaning: s.meaning, recommendations: steps(s.recommendations), nextSteps: steps(s.nextSteps) };
+  if (COMPATIBLE.includes(c.v as number) && typeof s.takeaway === "string" && typeof s.happened === "string" && typeof s.meaning === "string") {
+    return { takeaway: s.takeaway, happened: s.happened, ...(channelList(s.channels) ? { channels: channelList(s.channels)! } : {}), meaning: s.meaning, recommendations: steps(s.recommendations), nextSteps: steps(s.nextSteps) };
   }
   if (opts.legacy && c.v === LEGACY_VERSION && typeof s.overview === "string" && strings(s.working) && strings(s.notWorking) && strings(s.recommendations)) {
     return fromLegacySummary({ overview: s.overview, working: s.working, notWorking: s.notWorking, recommendations: s.recommendations, nextSteps: strings(s.nextSteps) ? s.nextSteps : [] });
@@ -81,6 +96,8 @@ async function cached(rep: ClientReport, now: Date, opts: { editedOnly?: boolean
     // AI text is refreshed after a day (platforms restate figures); what a person wrote is kept.
     const fresh = isEdited(c) || r.createdAt.getTime() > now.getTime() - TTL_MS;
     if (!fresh || (opts.editedOnly && !isEdited(c))) continue;
+    // An older AI summary nobody edited is rewritten in the current format.
+    if (!isEdited(c) && c.v !== VERSION) continue;
     const content = parseStored(c, rep);
     if (content) return { id: r.id, approved: typeof c.approvedAt === "string", content, stored: c };
   }
@@ -160,7 +177,8 @@ function startGeneration(rep: ClientReport, key: string): Promise<ExecutiveSumma
   if (!p) {
     p = (async () => {
       const agency = await prisma.agency.findUniqueOrThrow({ where: { id: rep.client.agencyId }, select: { name: true } });
-      const summary = await draftExecutiveSummary(await aiContextForReport(rep), { agencyName: agency.name, days: diffDays(rep.range.from, rep.range.to) + 1 });
+      const [data, channels] = await Promise.all([aiContextForReport(rep), summaryChannels(rep)]);
+      const summary = await draftExecutiveSummary(data, { agencyName: agency.name, days: diffDays(rep.range.from, rep.range.to) + 1, channels });
       // The agency's own notes for this period carry over to the new summary.
       const notes = await latestNotes(rep);
       await prisma.aiInsight.create({ data: { clientId: rep.client.id, kind: KIND, content: { v: VERSION, summary: { ...summary }, compare: compareKey(rep), ...(notes ? { notes } : {}) }, model: AI_MODEL, rangeFrom: rep.range.from, rangeTo: rep.range.to } });
@@ -267,6 +285,14 @@ export function parseSummaryEdit(raw: unknown): { ok: true; summary: ExecutiveSu
   const summary: ExecutiveSummaryContent = {
     takeaway: clip(r.takeaway, 600),
     happened: clip(r.happened, 1500),
+    ...(Array.isArray(r.channels)
+      ? {
+          channels: (r.channels as unknown[])
+            .map((c) => (c && typeof c === "object" ? { channel: clip((c as Record<string, unknown>).channel, 60), update: clip((c as Record<string, unknown>).update, 600) } : null))
+            .filter((c): c is ChannelUpdate => !!c && !!c.channel && !!c.update)
+            .slice(0, MAX_CHANNELS),
+        }
+      : {}),
     meaning: clip(r.meaning, 1500),
     recommendations: list(r.recommendations),
     nextSteps: list(r.nextSteps),
@@ -288,12 +314,12 @@ export async function saveSummaryEdit(rep: ClientReport, userId: string, insight
     const row = await prisma.aiInsight.findFirst({ where: { id: insightId, clientId: rep.client.id, kind: KIND }, select: { id: true, content: true } });
     if (row) {
       const c = row.content as Record<string, unknown>;
-      await prisma.aiInsight.update({ where: { id: row.id }, data: { content: { ...c, v: VERSION, summary: { ...edit.summary }, notes: edit.notes, ...stamp } as Prisma.InputJsonValue } });
+      await prisma.aiInsight.update({ where: { id: row.id }, data: { content: { ...c, v: VERSION, summary: { ...edit.summary }, notes: edit.notes, ...stamp } as unknown as Prisma.InputJsonValue } });
       return row.id;
     }
   }
   const created = await prisma.aiInsight.create({
-    data: { clientId: rep.client.id, kind: KIND, content: { v: VERSION, summary: { ...edit.summary }, compare: compareKey(rep), notes: edit.notes, origin: "auto", ...stamp }, model: "human", rangeFrom: rep.range.from, rangeTo: rep.range.to },
+    data: { clientId: rep.client.id, kind: KIND, content: { v: VERSION, summary: { ...edit.summary }, compare: compareKey(rep), notes: edit.notes, origin: "auto", ...stamp } as unknown as Prisma.InputJsonValue, model: "human", rangeFrom: rep.range.from, rangeTo: rep.range.to },
   });
   return created.id;
 }

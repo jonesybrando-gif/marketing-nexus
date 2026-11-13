@@ -284,6 +284,15 @@ export async function renderClientReportPdf(
         doc.moveDown(0.2);
         paragraph(doc, sec.text, { size: 9.5, color: C.text });
         doc.moveDown(0.25);
+      } else if (sec.labelled) {
+        doc.moveDown(0.3);
+        ensureSpace(doc, 40);
+        doc.font("Helvetica-Bold").fontSize(10).fillColor(C.text).text(pdfText(sec.title), doc.page.margins.left, doc.y);
+        doc.moveDown(0.2);
+        for (const l of sec.labelled) {
+          paragraph(doc, `${l.label}: ${l.text}`, { size: 9.5, color: C.text });
+          doc.moveDown(0.25);
+        }
       } else list(sec.title, sec.items, sec.numbered);
     }
     doc.moveDown(0.3);

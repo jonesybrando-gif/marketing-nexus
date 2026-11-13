@@ -16,24 +16,25 @@ const area = "w-full rounded-md border border-border bg-surface px-3 py-2 text-s
  * opens the same form at the notes ("Updates from our team"), which show
  * under the takeaway. Shows `children` (the summary) while not editing.
  */
-export function SummaryEditor({ clientId, params, insightId, summary, approved, children }: { clientId: string; params: ReportParams; insightId: string | null; summary: SummaryWithNotes; approved: boolean; children: ReactNode }) {
+export function SummaryEditor({ clientId, params, insightId, summary, approved, channelNames = [], children }: { clientId: string; params: ReportParams; insightId: string | null; summary: SummaryWithNotes; approved: boolean; channelNames?: string[]; children: ReactNode }) {
   const router = useRouter();
   const [editing, setEditing] = useState<false | "all" | "notes">(false);
-  const [draft, setDraft] = useState(() => toDraft(summary));
+  const [draft, setDraft] = useState(() => toDraft(summary, channelNames));
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
   const open = (mode: "all" | "notes") => {
-    setDraft(toDraft(summary));
+    setDraft(toDraft(summary, channelNames));
     setError(null);
     setEditing(mode);
   };
   const set = (k: keyof typeof draft, v: string) => setDraft((d) => ({ ...d, [k]: v }));
+  const setChannel = (i: number, v: string) => setDraft((d) => ({ ...d, channels: d.channels.map((c, j) => (j === i ? { ...c, update: v } : c)) }));
   const setStep = (i: number, v: string) => setDraft((d) => ({ ...d, steps: d.steps.map((x, j) => (j === i ? v : x)) }));
   const save = () =>
     start(async () => {
       setError(null);
       const steps = draft.steps.map((x) => x.trim()).filter(Boolean);
-      const res = await editSummaryAction(clientId, params, insightId, { takeaway: draft.takeaway, happened: draft.happened, meaning: draft.meaning, recommendations: steps, nextSteps: summary.nextSteps, notes: draft.notes }).catch(() => ({ ok: false as const, error: "Couldn't save. Check your connection and try again." }));
+      const res = await editSummaryAction(clientId, params, insightId, { takeaway: draft.takeaway, happened: draft.happened, channels: draft.channels.filter((c) => c.update.trim()), meaning: draft.meaning, recommendations: steps, nextSteps: summary.nextSteps, notes: draft.notes }).catch(() => ({ ok: false as const, error: "Couldn't save. Check your connection and try again." }));
       if (!res.ok) return setError(res.error);
       setEditing(false);
       router.refresh();
@@ -73,6 +74,17 @@ export function SummaryEditor({ clientId, params, insightId, summary, approved, 
             <Label htmlFor="es-happened">{SUMMARY_TITLES.happened}</Label>
             <textarea id="es-happened" rows={4} maxLength={1500} value={draft.happened} onChange={(e) => set("happened", e.target.value)} className={area} />
           </div>
+          {draft.channels.length > 0 && (
+            <fieldset className="flex flex-col gap-2">
+              <legend className="text-sm font-medium">{SUMMARY_TITLES.channels}</legend>
+              {draft.channels.map((c, i) => (
+                <div key={c.channel} className="flex flex-col gap-1">
+                  <Label htmlFor={`es-ch-${i}`} className="text-xs text-text-2">{c.channel}</Label>
+                  <textarea id={`es-ch-${i}`} rows={2} maxLength={600} value={c.update} onChange={(e) => setChannel(i, e.target.value)} className={area} placeholder="Leave empty to leave this channel out" />
+                </div>
+              ))}
+            </fieldset>
+          )}
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="es-meaning">{SUMMARY_TITLES.meaning}</Label>
             <textarea id="es-meaning" rows={4} maxLength={1500} value={draft.meaning} onChange={(e) => set("meaning", e.target.value)} className={area} />
@@ -104,8 +116,11 @@ export function SummaryEditor({ clientId, params, insightId, summary, approved, 
   );
 }
 
-function toDraft(s: SummaryWithNotes) {
+/** Every channel the client tracks gets a box (empty when the summary doesn't cover it yet), plus any extra the summary has. */
+function toDraft(s: SummaryWithNotes, channelNames: string[]) {
+  const have = s.channels ?? [];
+  const names = [...channelNames, ...have.map((c) => c.channel).filter((n) => !channelNames.includes(n))];
   const steps = [...s.recommendations.slice(0, MAX_STEPS)];
   while (steps.length < MAX_STEPS) steps.push("");
-  return { takeaway: s.takeaway, happened: s.happened, meaning: s.meaning, steps, notes: s.notes ?? "" };
+  return { takeaway: s.takeaway, happened: s.happened, channels: names.map((channel) => ({ channel, update: have.find((c) => c.channel === channel)?.update ?? "" })), meaning: s.meaning, steps, notes: s.notes ?? "" };
 }

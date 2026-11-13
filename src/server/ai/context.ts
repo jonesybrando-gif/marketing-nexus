@@ -4,7 +4,8 @@ import { isAccountDisconnected, isAccountRetired } from "@/lib/account-health";
 import "server-only";
 import type { ClientReport } from "../client-report";
 import { buildAiContext, type AiContextInput } from "@/lib/ai-context";
-import { PLATFORM_LABEL } from "@/lib/platforms";
+import { PLATFORM_LABEL, type PlatformKey } from "@/lib/platforms";
+import { channelName } from "@/lib/exec-summary";
 import { rangeLabel } from "@/lib/date-ranges";
 import { formatDate } from "@/lib/time";
 import { stillCounting } from "@/lib/results";
@@ -22,13 +23,35 @@ export function contextForReport(rep: ClientReport): string {
  * The grounding text the AI features use: the report plus the client's website,
  * organic search and keyword-rank data for the same period, when connected.
  */
-export async function aiContextForReport(rep: ClientReport): Promise<string> {
-  // Only the sources the client's Report includes: removing a section (CallRail, SEO…) takes it out of the summary too.
+/** Connected sources that are in the client's Report (removing a section, e.g. CallRail, takes it out of the summary too). */
+async function sourcesInReport(rep: ClientReport): Promise<{ linked: MetricSource[]; include: Set<MetricSource> }> {
   const linked = await linkedSources(rep.client.id).catch(() => [] as MetricSource[]);
-  const inReport = await loadClientReportLayout(rep.client.id, linked)
+  const platforms = [...new Set(rep.client.accounts.map((a) => a.platform as PlatformKey))];
+  const inReport = await loadClientReportLayout(rep.client.id, linked, platforms)
     .then((l) => reportSources(l.layout))
     .catch(() => new Set<MetricSource>(linked));
-  const include = new Set(linked.filter((s) => inReport.has(s)));
+  return { linked, include: new Set(linked.filter((s) => inReport.has(s))) };
+}
+
+/**
+ * The traffic sources the summary's "By channel" part covers, in order: each
+ * ad platform the report includes (within the account filter), then calls,
+ * organic search and rankings, and website traffic when they're in the report.
+ */
+export async function summaryChannels(rep: ClientReport): Promise<string[]> {
+  const { include } = await sourcesInReport(rep);
+  const scope = rep.accountScope?.ids ?? null;
+  const order: PlatformKey[] = ["GOOGLE_ADS", "META_ADS", "MICROSOFT_ADS", "GOOGLE_LSA"];
+  const platforms = new Set(rep.client.accounts.filter((a) => !scope || scope.includes(a.id)).map((a) => a.platform as PlatformKey));
+  const out: string[] = include.has("ads") ? order.filter((p) => platforms.has(p)).map((p) => channelName(PLATFORM_LABEL[p])) : [];
+  if (include.has("callrail")) out.push("Phone calls");
+  if (include.has("gsc") || include.has("rank")) out.push("Organic search and rankings");
+  if (include.has("ga4")) out.push("Website traffic");
+  return out;
+}
+
+export async function aiContextForReport(rep: ClientReport): Promise<string> {
+  const { linked, include } = await sourcesInReport(rep);
   const web = await webContextFor(rep.client.id, rep.client.currency, rep.range, rep.cmpRange, { callrail: !linked.includes("callrail") ? false : include.has("callrail") ? true : undefined, callsFromAds: rep.callsFromAds ?? null, include }).catch(() => null);
   return buildAiContext({ ...contextInput(rep), web });
 }

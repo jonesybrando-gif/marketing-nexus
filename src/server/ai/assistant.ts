@@ -134,7 +134,8 @@ export async function draftReportSummary(data: string, opts: { agencyName: strin
 
 const ExecSummarySchema = z.object({
   takeaway: z.string().describe("One or two sentences: the single most important takeaway, shown while the summary is collapsed"),
-  happened: z.string().describe("What happened? 2 to 4 sentences, 40 to 70 words"),
+  happened: z.string().describe("What happened? 2 to 4 sentences, 40 to 70 words, overall"),
+  channels: z.array(z.object({ channel: z.string(), update: z.string() })).optional().describe("By channel: one short update per listed traffic source, in the listed order, named exactly as listed"),
   meaning: z.string().describe("What does this mean? 2 to 4 sentences, 40 to 70 words, plain English"),
   recommendations: z.array(z.string()).describe("What should we do next? At most three specific actions, most important first, each with why it matters"),
   nextSteps: z.array(z.string()).describe("The same actions rewritten as what the agency will do next, in the agency's voice, e.g. \"We'll move…\""),
@@ -146,16 +147,23 @@ export type ExecSummaryDraft = z.infer<typeof ExecSummarySchema>;
  * does this mean? What should we do next?) plus a one-line takeaway for the
  * collapsed view, written for a business owner rather than a marketer.
  */
-export async function draftExecutiveSummary(data: string, opts: { agencyName: string; days: number }): Promise<ExecSummaryDraft> {
+export async function draftExecutiveSummary(data: string, opts: { agencyName: string; days: number; channels?: string[] }): Promise<ExecSummaryDraft> {
+  const channels = opts.channels ?? [];
   const out = await generate(
     ExecSummarySchema,
-    `Write the executive summary at the top of this client's report, from ${opts.agencyName} to the business owner, for exactly the reporting period in the data. Write like a knowledgeable marketing advisor explaining results to a client in a meeting: conversational, plain English, focused on what it means for the business. The whole summary (happened + meaning + steps) should be about 150 to 250 words, aiming for around 180, and readable in a minute.
+    `Write the executive summary at the top of this client's report, from ${opts.agencyName} to the business owner, for exactly the reporting period in the data. Write like a knowledgeable marketing advisor explaining results to a client in a meeting: conversational, plain English, focused on what it means for the business. The whole summary (happened + meaning + steps) should be about 150 to 250 words, aiming for around 180, and readable in a minute${channels.length ? ", plus about 25 to 40 words for each channel update" : ""}.
 
 takeaway: one or two sentences with the single most important point (for example "You got 42 leads this month, 8 more than last month, and each one cost less."). It is shown on its own while the summary is collapsed, so the sections below must NOT repeat it word for word.
 
 happened ("What happened?"): 2 to 4 sentences, 40 to 70 words. The most important results and what was spent, compared with the previous period, and whether things improved, declined or held steady. Only the most meaningful numbers, in this order of importance: sales, bookings or appointments when tracked; qualified leads and enquiries; phone calls and form submissions; cost per lead or customer; ad spend and budget; website visits; other ad and search figures only when they explain an outcome.
 
 meaning ("What does this mean?"): 2 to 4 sentences, 40 to 70 words. Interpret the results: is marketing becoming more or less effective, are leads getting more or less expensive, what is producing the best results, and any real concern or opportunity. Translate metrics into consequences (not "CTR fell 17% and CPC rose 12%" but "Fewer people are clicking your ads and each visit costs more, which can make leads more expensive").
+
+channels ("By channel"): ${
+      channels.length
+        ? `exactly one entry for each of these traffic sources, in this order, with "channel" set to the name exactly as written: ${channels.map((c) => `"${c}"`).join(", ")}. Each "update" is one or two plain sentences (25 to 40 words) on what happened in that channel this period and what it means, using that channel's own figures from the data (for ad platforms: spend, results and what each cost, against the previous period; for phone calls: calls, first-time callers and missed calls; for organic search and rankings: search clicks and how positions moved; for website traffic: visits and website goals). If a channel has no figures or too little data, say so plainly in its update. Don't repeat the overall figures from "happened"; this is where the channel detail goes.`
+        : "return an empty list."
+    }
 
 recommendations ("What should we do next?"): at most three, most important first, each one or two short sentences saying what to do and why it matters, backed by the data (for example "Move more of the budget to the Emergency Repairs campaign, which brings in leads for about half the cost of the others."). Never generic advice like "continue optimizing campaigns". If nothing needs to change, give a single item saying so and why, rather than inventing actions.
 
@@ -170,7 +178,10 @@ Accuracy: use only figures in the data. State confirmed findings plainly and mar
     "medium",
   );
   const clean = (xs: string[]) => xs.map((x) => x.replace(/^\s*(?:[-•*]|\d+[.)])\s*/, "").trim()).filter(Boolean).slice(0, 3);
-  return { takeaway: out.takeaway.trim(), happened: out.happened.trim(), meaning: out.meaning.trim(), recommendations: clean(out.recommendations), nextSteps: clean(out.nextSteps ?? []) };
+  // Keep only the listed channels, in the listed order.
+  const byName = new Map((out.channels ?? []).map((c) => [c.channel.trim().toLowerCase(), c.update.trim()]));
+  const channelUpdates = channels.map((c) => ({ channel: c, update: byName.get(c.toLowerCase()) ?? "" })).filter((c) => c.update);
+  return { takeaway: out.takeaway.trim(), happened: out.happened.trim(), channels: channelUpdates, meaning: out.meaning.trim(), recommendations: clean(out.recommendations), nextSteps: clean(out.nextSteps ?? []) };
 }
 
 // --- Client email -----------------------------------------------------------

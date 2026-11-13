@@ -28,10 +28,18 @@ const change = (cur: number | null, prev: number | null | undefined, sample?: [n
  * should we do next? `takeaway` is the one- or two-sentence headline shown
  * while the summary is collapsed; it is never repeated in the sections.
  */
+/** One traffic source's update (Google Ads, Meta Ads, Local Services Ads, organic search, website traffic, calls…). */
+export interface ChannelUpdate {
+  channel: string;
+  update: string;
+}
+
 export interface ExecutiveSummaryContent {
   takeaway: string;
-  /** What happened? 2–4 sentences. */
+  /** What happened? 2–4 sentences, overall. */
   happened: string;
+  /** By channel: one short update per traffic source the client tracks, in a fixed order. */
+  channels?: ChannelUpdate[];
   /** What does this mean? 2–4 sentences, plain English. */
   meaning: string;
   /** What should we do next? For the agency: at most three, most important first. Internal views only. */
@@ -41,7 +49,7 @@ export interface ExecutiveSummaryContent {
 }
 
 export const MAX_STEPS = 3;
-export const SUMMARY_TITLES = { notes: "Updates from our team", happened: "What happened?", meaning: "What does this mean?", next: "What should we do next?" } as const;
+export const SUMMARY_TITLES = { notes: "Updates from our team", channels: "By channel", happened: "What happened?", meaning: "What does this mean?", next: "What should we do next?" } as const;
 
 /** A summary with the agency's own notes (shown under the takeaway). */
 export type SummaryWithNotes = ExecutiveSummaryContent & { notes?: string };
@@ -80,6 +88,57 @@ export function fromLegacySummary(s: { overview: string; working: string[]; notW
  * rest of the figures as what happened, the two strongest findings as what
  * it means, and up to three recommendations.
  */
+/** Channel names as clients read them (Google LSA → Local Services Ads). */
+export const channelName = (platformLabel: string) => (platformLabel === "Google LSA" ? "Local Services Ads" : platformLabel);
+
+/**
+ * One plain sentence per ad platform from the figures: spend, results and
+ * what each cost, against the comparison period. Leads for platforms that
+ * report them, otherwise results; missing figures are said, never shown as 0.
+ */
+export function autoChannelUpdates(i: AiContextInput): ChannelUpdate[] {
+  const c = i.currency;
+  const money = (v: number) => formatMoney(v, c, { whole: v >= 10000 });
+  const groups = new Map<string, { cur: MetricTotals[]; prev: MetricTotals[]; missing: boolean }>();
+  for (const a of i.accounts) {
+    const g = groups.get(a.platform) ?? { cur: [], prev: [], missing: false };
+    if (a.totals) g.cur.push(a.totals);
+    else g.missing = true;
+    if (a.previousTotals) g.prev.push(a.previousTotals);
+    groups.set(a.platform, g);
+  }
+  const sum = (xs: MetricTotals[]) => xs.reduce((t, x) => ({ cost: t.cost + x.costMinor, conv: t.conv + x.conversions, leads: t.leads + x.leads, clicks: t.clicks + x.clicks }), { cost: 0, conv: 0, leads: 0, clicks: 0 });
+  const out: ChannelUpdate[] = [];
+  for (const [platform, g] of groups) {
+    const channel = channelName(platform);
+    if (!g.cur.length) {
+      out.push({ channel, update: "No figures were reported for this period yet." });
+      continue;
+    }
+    const t = sum(g.cur);
+    const p = g.prev.length ? sum(g.prev) : null;
+    if (t.cost === 0 && t.clicks === 0) {
+      out.push({ channel, update: "No ad activity in this period." });
+      continue;
+    }
+    const useLeads = t.leads > 0 && t.leads >= t.conv;
+    const n = useLeads ? t.leads : t.conv;
+    const noun = useLeads ? "lead" : "result";
+    const parts = [`${money(t.cost)} spent`];
+    if (n > 0) parts.push(`${formatNumber(n, n < 10 && n % 1 ? 1 : 0)} ${noun}${n === 1 ? "" : "s"} at about ${formatMoney(Math.round(t.cost / n), c)} each`);
+    else parts.push(`no ${noun}s were reported, so for now it can only be judged on its ${formatNumber(t.clicks)} clicks`);
+    let s = `${parts.join(", ")}.`;
+    const pn = p ? (useLeads ? p.leads : p.conv) : 0;
+    if (p && n > 0 && pn > 0) {
+      const d = pctChange(n, pn);
+      if (d !== null && n >= MIN_SAMPLE && pn >= MIN_SAMPLE) s += Math.abs(d) < MIN_CHANGE_PCT ? ` About the same number of ${noun}s as the previous period.` : ` That's ${d > 0 ? "more" : "fewer"} ${noun}s than the previous period (${formatNumber(pn, 0)} before).`;
+    }
+    if (g.missing) s += " One account hasn't reported figures yet.";
+    out.push({ channel, update: s });
+  }
+  return out;
+}
+
 export function autoExecutiveSummary(i: AiContextInput): ExecutiveSummaryContent {
   const { working, notWorking, recommendations, nextSteps } = analyzePerformance(i);
   const paras = autoOverview(i).split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
@@ -88,6 +147,7 @@ export function autoExecutiveSummary(i: AiContextInput): ExecutiveSummaryContent
   return {
     takeaway,
     happened: [rest, ...paras.slice(1)].filter(Boolean).join(" "),
+    ...(i.accounts.length > 1 || new Set(i.accounts.map((a) => a.platform)).size > 1 ? { channels: autoChannelUpdates(i) } : {}),
     meaning: findings.join(" ") || "There isn't enough data in this period to draw a firm conclusion yet.",
     recommendations: recommendations.slice(0, MAX_STEPS),
     nextSteps: nextSteps.slice(0, MAX_STEPS),
@@ -173,6 +233,8 @@ export interface SummarySection {
   title: string;
   /** Prose (What happened? / What does this mean?). */
   text?: string;
+  /** Labelled updates (By channel). */
+  labelled?: { label: string; text: string }[];
   /** Steps (What should we do next?). */
   items: string[];
   numbered: boolean;
@@ -188,6 +250,8 @@ export function summaryOutline(s: ExecutiveSummaryContent, clientFacing: boolean
   const steps = (clientFacing ? s.nextSteps : s.recommendations).slice(0, MAX_STEPS);
   const out: SummarySection[] = [];
   if (s.happened.trim()) out.push({ title: SUMMARY_TITLES.happened, text: s.happened.trim(), items: [], numbered: false });
+  const channels = (s.channels ?? []).filter((c) => c.channel.trim() && c.update.trim());
+  if (channels.length) out.push({ title: SUMMARY_TITLES.channels, labelled: channels.map((c) => ({ label: c.channel.trim(), text: c.update.trim() })), items: [], numbered: false });
   if (s.meaning.trim()) out.push({ title: SUMMARY_TITLES.meaning, text: s.meaning.trim(), items: [], numbered: false });
   if (steps.length) out.push({ title: SUMMARY_TITLES.next, items: steps, numbered: true });
   return out;
@@ -200,6 +264,7 @@ export function summaryAsText(s: SummaryWithNotes, heading: string, opts: { clie
   for (const sec of summaryOutline(s, !!opts.clientFacing)) {
     out.push(sec.title);
     if (sec.text) out.push(sec.text);
+    for (const l of sec.labelled ?? []) out.push(`${l.label}: ${l.text}`);
     out.push(...sec.items.map((x, i) => `${i + 1}. ${x}`), "");
   }
   return out.join("\n").replace(/\n{3,}/g, "\n\n").trim();
@@ -218,6 +283,7 @@ export function summaryAsHtml(s: SummaryWithNotes, heading: string, opts: { clie
   for (const sec of summaryOutline(s, !!opts.clientFacing)) {
     parts.push(`<p style="${h}">${esc(sec.title)}</p>`);
     if (sec.text) parts.push(`<p style="${p}">${esc(sec.text)}</p>`);
+    for (const l of sec.labelled ?? []) parts.push(`<p style="${p}"><strong>${esc(l.label)}:</strong> ${esc(l.text)}</p>`);
     if (sec.items.length) parts.push(`<ol style="margin:0 0 12px;padding-left:22px;">${sec.items.map((x) => `<li style="${li}">${esc(x)}</li>`).join("")}</ol>`);
   }
   return `<div>${parts.join("")}</div>`;
