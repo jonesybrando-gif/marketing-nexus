@@ -49,7 +49,7 @@ export interface FormLogRow {
 }
 
 export type WidgetData =
-  | { kind: "kpi"; metric: MetricInfo; value: number | null; previous: number | null; changePct: number | null; tone: Tone | null; verdict?: Verdict | null; spark: (number | null)[]; hasComparison: boolean; /** "previous period", "previous month"… */ vsLabel?: string }
+  | { kind: "kpi"; metric: MetricInfo; value: number | null; previous: number | null; changePct: number | null; tone: Tone | null; verdict?: Verdict | null; spark: (number | null)[]; hasComparison: boolean; /** "previous period", "previous month"… */ vsLabel?: string; /** The accounts don't report this (e.g. ROAS without conversion values). */ notTracked?: boolean }
   | { kind: "series"; metrics: MetricInfo[]; dates: string[]; current: Record<string, (number | null)[]>; previous: Record<string, (number | null)[]> | null; previousDates: string[] | null }
   | { kind: "breakdown"; metrics: MetricInfo[]; dimensionLabel: string; rows: { label: string; values: Record<string, number | null> }[] }
   | { kind: "rankings"; rows: KeywordRankRow[]; hasComparison: boolean }

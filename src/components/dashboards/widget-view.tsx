@@ -248,7 +248,7 @@ function KpiWidget({ title, data, currency, fillCls, hideChange = false }: { tit
       <p className="truncate text-xl font-semibold tabular">{formatMetric(data.metric, data.value, currency)}</p>
       {!hideChange && <p className="flex min-w-0 items-center gap-1 text-xs tabular">
         {data.changePct === null ? (
-          <span className="text-text-3">{data.value === null ? "Not reported" : data.hasComparison ? "No comparison data" : "No comparison"}</span>
+          <span className="text-text-3" title={data.notTracked ? "None of the included ad accounts report this, so there's nothing to show." : undefined}>{data.notTracked ? "Not tracked for this client" : data.value === null ? "Not reported" : data.hasComparison ? "No comparison data" : "No comparison"}</span>
         ) : (
           // Short label on the tile; the full wording ("Up 93% from 14 · better") on hover and for screen readers.
           <span className={cn("truncate", verdict === "few" || verdict === "same" ? "text-text-3" : TONE_TEXT[data.tone ?? "neutral"])} title={words.text}>

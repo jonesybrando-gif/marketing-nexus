@@ -147,6 +147,11 @@ describe("resolveWidgets", () => {
     expect((d.adPerformance as unknown as { mock: { calls: unknown[][] } }).mock.calls[0][2]).toEqual(["acc1"]);
   });
 
+  it("shows ROAS as not tracked (not 0.00×) when no account reports conversion values", async () => {
+    const out = await resolveWidgets([W({ id: "r", kind: "kpi", metrics: ["ads.roas"] })], ctx(), deps());
+    expect(out.r).toMatchObject({ kind: "kpi", value: null, notTracked: true });
+  });
+
   it("labels a Number tile's comparison by the page's comparison mode", async () => {
     const out = await resolveWidgets([W({ id: "k", kind: "kpi", metrics: ["ads.spend"] })], ctx({ compareMode: "previous_month" }), deps());
     expect(out.k).toMatchObject({ vsLabel: "previous month" });

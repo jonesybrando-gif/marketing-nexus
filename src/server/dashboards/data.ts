@@ -6,7 +6,7 @@ import { callLog, formLog, keywordRankTable, type CallLogFn, type FormLogFn, typ
 import type { ClientReport } from "../client-report";
 import { comparisonRange, resolveRange, type CompareMode, type DateRange, type RangePreset } from "@/lib/date-ranges";
 import { eachDay, type IsoDate } from "@/lib/pacing/dates";
-import { dailyKpiValue, KPI_BY_KEY, kpiValues, type KpiKey } from "@/lib/kpis";
+import { dailyKpiValue, KPI_BY_KEY, kpiValues, untrackedKpis, type KpiKey } from "@/lib/kpis";
 import { addInto, emptyTotals, type MetricTotals } from "@/lib/metrics";
 import type { DailyValue } from "@/lib/metrics-registry/aggregate";
 import { DIMENSIONS, type MetricSource } from "@/lib/metrics-registry";
@@ -268,6 +268,10 @@ function buildKpi(w: DashboardWidget, p: Period, ctx: ResolveContext, l: Loaded)
   const ad = adKpiKey(key);
   if (ad) {
     if (!l.ad) return emptyFor("ads", ctx.linked);
+    // ROAS, conversion value, leads and cost per lead mean nothing when the accounts don't track them: "not tracked", never 0.00×.
+    if (untrackedKpis(l.ad.cur.totals, l.ad.cmp?.totals ?? null).has(ad)) {
+      return { kind: "kpi", metric: info, value: null, previous: null, changePct: null, tone: null, verdict: null, spark: [], hasComparison: !!l.ad.cmp, vsLabel: vsLabel(ctx, w), notTracked: true };
+    }
     const [kv] = kpiValues([ad], l.ad.cur.totals, l.ad.cmp?.totals ?? null);
     return { kind: "kpi", metric: info, value: kv.value, previous: kv.previous, changePct: kv.changePct, tone: kv.tone, verdict: kv.verdict, spark: adDaily(l.ad.cur, ad, p.range), hasComparison: !!l.ad.cmp, vsLabel: vsLabel(ctx, w) };
   }
