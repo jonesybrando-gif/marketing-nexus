@@ -4,11 +4,11 @@ import { revalidatePath } from "next/cache";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "../db";
 import { requireClientEdit } from "../access";
-import { availableSectionTypes, isSectionType, newSection, parseReportLayout, REPORT_SECTIONS_VERSION, type ReportLayout, type SectionType } from "@/lib/dashboards/report-sections";
+import { availableSectionTypes, isSectionType, MAX_SECTIONS, newSection, parseReportLayout, REPORT_SECTIONS_VERSION, type ReportLayout, type SectionType } from "@/lib/dashboards/report-sections";
 import { DEFAULT_REPORT_TEMPLATE } from "@/lib/dashboards/report-templates";
 import type { DashboardResult } from "./actions";
 import { loadClientReportLayout, REPORT_ROLE } from "./report";
-import { linkedSources } from "./sources";
+import { adPlatforms, linkedSources } from "./sources";
 
 async function store(clientId: string, agencyId: string, userId: string, layout: ReportLayout) {
   const data = layout as unknown as Prisma.InputJsonValue;
@@ -41,7 +41,7 @@ export async function saveClientReportAction(clientId: string, layout: unknown):
   const user = await requireClientEdit(clientId);
   const parsed = parseReportLayout(layout);
   if (!parsed.ok) return parsed;
-  const available = availableSectionTypes(await linkedSources(clientId));
+  const available = availableSectionTypes(await linkedSources(clientId), await adPlatforms(clientId));
   const present = new Set(parsed.layout.sections.map((s) => s.type));
   const next: ReportLayout = {
     ...parsed.layout,
@@ -56,8 +56,8 @@ export async function saveClientReportAction(clientId: string, layout: unknown):
 /** Adds the default sections for newly connected integrations to a customized report (after the user agrees). */
 export async function addNewReportSectionsAction(clientId: string, types: SectionType[]): Promise<DashboardResult> {
   const user = await requireClientEdit(clientId);
-  const linked = await linkedSources(clientId);
-  const { layout, saved } = await loadClientReportLayout(clientId, linked);
+  const [linked, platforms] = await Promise.all([linkedSources(clientId), adPlatforms(clientId)]);
+  const { layout, saved } = await loadClientReportLayout(clientId, linked, platforms);
   if (!saved) return { ok: true };
   const wanted = types.filter(isSectionType);
   const sections = [...layout.sections];
@@ -69,8 +69,40 @@ export async function addNewReportSectionsAction(clientId: string, types: Sectio
 /** "Not now": the new integrations stay out of the report and aren't offered again (Add Section still has them). */
 export async function dismissNewReportSectionsAction(clientId: string, types: SectionType[]): Promise<DashboardResult> {
   const user = await requireClientEdit(clientId);
-  const { layout, saved } = await loadClientReportLayout(clientId, await linkedSources(clientId));
+  const { layout, saved } = await loadClientReportLayout(clientId, await linkedSources(clientId), await adPlatforms(clientId));
   if (!saved) return { ok: true };
   await store(clientId, user.agencyId, user.id, { ...layout, known: [...new Set([...layout.known, ...types.filter(isSectionType)])] });
+  return { ok: true };
+}
+
+/**
+ * Remove Section, straight from the finished report: saves the report
+ * without that section (a still-default report becomes this client's own
+ * copy first). The type is remembered as removed, so it never comes back on
+ * its own; the integration and its data are untouched.
+ */
+export async function removeReportSectionAction(clientId: string, sectionId: string): Promise<DashboardResult> {
+  const user = await requireClientEdit(clientId);
+  const [linked, platforms] = await Promise.all([linkedSources(clientId), adPlatforms(clientId)]);
+  const { layout } = await loadClientReportLayout(clientId, linked, platforms);
+  const gone = layout.sections.find((x) => x.id === sectionId);
+  if (!gone) return { ok: true };
+  const sections = layout.sections.filter((x) => x.id !== sectionId);
+  const removed = sections.some((x) => x.type === gone.type) ? layout.removed : [...new Set([...layout.removed, gone.type])];
+  await store(clientId, user.agencyId, user.id, { ...layout, sections, removed, known: [...new Set([...layout.known, ...availableSectionTypes(linked, platforms)])] });
+  return { ok: true };
+}
+
+/** Add Section, straight from the finished report: appends the type's default section (also restores a removed one). */
+export async function addReportSectionAction(clientId: string, type: string): Promise<DashboardResult> {
+  const user = await requireClientEdit(clientId);
+  if (!isSectionType(type)) return { ok: false, error: "Unknown section." };
+  const [linked, platforms] = await Promise.all([linkedSources(clientId), adPlatforms(clientId)]);
+  const { layout } = await loadClientReportLayout(clientId, linked, platforms);
+  if (layout.sections.length >= MAX_SECTIONS) return { ok: false, error: `A report can have up to ${MAX_SECTIONS} sections.` };
+  const sections = [...layout.sections, newSection(type, layout.sections, linked)];
+  const parsed = parseReportLayout({ ...layout, sections });
+  if (!parsed.ok) return parsed;
+  await store(clientId, user.agencyId, user.id, { ...parsed.layout, removed: layout.removed.filter((t) => t !== type), known: [...new Set([...layout.known, ...availableSectionTypes(linked, platforms)])] });
   return { ok: true };
 }

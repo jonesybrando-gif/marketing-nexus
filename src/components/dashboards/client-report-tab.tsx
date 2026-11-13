@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Pencil } from "lucide-react";
 import type { ClientReport } from "@/server/client-report";
-import { contextFromReport, resolveWidgets } from "@/server/dashboards/data";
+import { contextFromReport, resolveWidgets, scopeToPlatform } from "@/server/dashboards/data";
 import { linkedSources } from "@/server/dashboards/sources";
 import { loadClientReportLayout } from "@/server/dashboards/report";
 import { saveClientReportAction } from "@/server/dashboards/report-actions";
@@ -15,8 +15,10 @@ import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { DashboardGrid } from "./dashboard-grid";
 import { ReportEditor } from "./report-editor";
-import { NewSectionsNotice, ReportSectionView } from "./report-section-view";
-import { allWidgets } from "@/lib/dashboards/report-sections";
+import { AddSectionMenu, NewSectionsNotice, ReportSectionView } from "./report-section-view";
+import { availableSectionTypes, SECTION_TYPE, type SectionType } from "@/lib/dashboards/report-sections";
+import type { DashboardWidget } from "@/lib/dashboards/types";
+import type { PlatformKey } from "@/lib/platforms";
 import { adSlots } from "./dashboard-section";
 
 /**
@@ -52,10 +54,24 @@ export async function ClientReportTab({
 }) {
   const clientId = rep.client.id;
   const linked = await linkedSources(clientId);
-  const layout = await loadClientReportLayout(clientId, linked);
-  // Every section's widgets in one pass, so shared queries run once.
-  const widgets = allWidgets(layout.layout);
-  const data = await resolveWidgets(widgets, contextFromReport(rep, linked, staff));
+  const platforms = [...new Set(rep.client.accounts.map((a) => a.platform as PlatformKey))];
+  const layout = await loadClientReportLayout(clientId, linked, platforms);
+  // Widgets of all-platform sections resolve in one pass (shared queries); each ad platform section
+  // (Google Ads, Meta Ads…) resolves against that platform's accounts only.
+  const base = contextFromReport(rep, linked, staff);
+  const platformOf = (type: SectionType) => SECTION_TYPE[type].platform;
+  const shown = layout.layout.sections;
+  const shared = shown.filter((s) => !platformOf(s.type)).flatMap((s) => s.widgets);
+  const byPlatform = new Map<PlatformKey, DashboardWidget[]>();
+  for (const s of shown) {
+    const pl = platformOf(s.type);
+    if (pl) byPlatform.set(pl, [...(byPlatform.get(pl) ?? []), ...s.widgets]);
+  }
+  const parts = await Promise.all([
+    resolveWidgets(shared, base),
+    ...[...byPlatform].map(async ([pl, ws]) => resolveWidgets(ws, await scopeToPlatform(base, pl))),
+  ]);
+  const data = Object.assign({}, ...parts);
   const slotOpts = { rep, staff, basePath, query };
   const params = { range: query.range, compare: query.compare, from: query.from, to: query.to, accounts: query.accounts };
   const scope = rep.accountScope;
@@ -95,6 +111,7 @@ export async function ClientReportTab({
           data={data}
           currency={rep.client.currency}
           slots={adSlots(slotOpts, "all")}
+          slotsByPlatform={Object.fromEntries(platforms.map((pl) => [pl, adSlots(slotOpts, [{ kind: "campaigns" }], pl)]))}
           clientId={clientId}
           linked={linked}
           rangeParams={{ range: query.range, compare: query.compare, from: query.from, to: query.to }}
@@ -130,11 +147,29 @@ export async function ClientReportTab({
         </Card>
       ) : (
         sections.map((s) => (
-          <ReportSectionView key={s.id} storageKey={`${clientId}:${s.id}`} title={s.title} defaultCollapsed={s.collapsed}>
-            <DashboardGrid widgets={s.widgets} data={data} currency={rep.client.currency} slots={adSlots(slotOpts, s.widgets)} staff={staff} />
+          <ReportSectionView key={s.id} storageKey={`${clientId}:${s.id}`} title={s.title} defaultCollapsed={s.collapsed} remove={canEdit ? { clientId, sectionId: s.id } : undefined}>
+            <DashboardGrid widgets={s.widgets} data={data} currency={rep.client.currency} slots={adSlots(slotOpts, s.widgets, platformOf(s.type))} staff={staff} />
           </ReportSectionView>
         ))
       )}
+      {canEdit && (
+        <AddSectionMenu
+          clientId={clientId}
+          options={availableAddOptions(layout.layout.sections.map((s) => s.type), layout.layout.removed, availableSectionTypes(linked, platforms))}
+        />
+      )}
     </div>
   );
+}
+
+/** Add Section choices: every type, marked connected, already in the report, or removed earlier. */
+function availableAddOptions(present: SectionType[], removed: SectionType[], available: SectionType[]) {
+  return (Object.keys(SECTION_TYPE) as SectionType[]).map((t) => ({
+    type: t,
+    title: SECTION_TYPE[t].title,
+    description: SECTION_TYPE[t].description,
+    inReport: present.includes(t),
+    connected: available.includes(t),
+    removed: removed.includes(t) && !present.includes(t),
+  }));
 }

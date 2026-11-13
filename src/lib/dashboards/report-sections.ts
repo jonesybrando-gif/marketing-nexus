@@ -6,6 +6,7 @@
 // Pure (no DB), so it is unit-tested and shared by the editor and server.
 
 import type { MetricSource } from "@/lib/metrics-registry";
+import type { PlatformKey } from "@/lib/platforms";
 import type { DashboardWidget } from "./types";
 import { parseWidgets, readWidgets, MAX_WIDGETS } from "./parse";
 import { sourceOf } from "./metrics";
@@ -13,7 +14,7 @@ import { sourceOf } from "./metrics";
 /** Version of the saved Report format (Dashboard.layoutVersion): 1 = flat widgets, 2 = sections. */
 export const REPORT_SECTIONS_VERSION = 2;
 
-export type SectionType = "ads" | "callrail" | "seo" | "ga4" | "pacing";
+export type SectionType = "google_ads" | "meta_ads" | "microsoft_ads" | "lsa" | "ads" | "callrail" | "seo" | "ga4" | "pacing";
 
 export interface SectionTypeDef {
   type: SectionType;
@@ -24,11 +25,19 @@ export interface SectionTypeDef {
   sources: MetricSource[];
   /** Available when any of these sources is connected. */
   requires: MetricSource[];
+  /** Ad platform sections: only that platform's accounts, available when the client has one. */
+  platform?: PlatformKey;
+  /** Not part of a default report (offered in Add Section only). */
+  optional?: boolean;
 }
 
 /** Display order of a default report; future integrations add an entry here and a template below. */
 export const SECTION_TYPES: SectionTypeDef[] = [
-  { type: "ads", title: "Paid Media", description: "Google Ads, Meta, Microsoft and Local Services: spend, results and campaigns.", sources: ["ads"], requires: ["ads"] },
+  { type: "google_ads", title: "Google Ads", description: "Spend, clicks, conversions and campaigns from Google Ads.", sources: ["ads"], requires: ["ads"], platform: "GOOGLE_ADS" },
+  { type: "meta_ads", title: "Meta Ads", description: "Spend, reach, clicks, leads and campaigns from Facebook and Instagram ads.", sources: ["ads"], requires: ["ads"], platform: "META_ADS" },
+  { type: "microsoft_ads", title: "Microsoft Ads", description: "Spend, clicks, conversions and campaigns from Microsoft Advertising.", sources: ["ads"], requires: ["ads"], platform: "MICROSOFT_ADS" },
+  { type: "lsa", title: "Local Services Ads", description: "Spend, leads and cost per lead from Google Local Services.", sources: ["ads"], requires: ["ads"], platform: "GOOGLE_LSA" },
+  { type: "ads", title: "Paid Media (all platforms)", description: "Every ad platform added together: spend, results, platforms and campaigns.", sources: ["ads"], requires: ["ads"], optional: true },
   { type: "callrail", title: "CallRail", description: "Calls, answered and missed, first-time callers, sources and campaigns.", sources: ["callrail"], requires: ["callrail"] },
   { type: "seo", title: "SEO", description: "Google Search clicks and positions, top queries and pages, keyword rankings.", sources: ["gsc", "rank"], requires: ["gsc", "rank"] },
   { type: "ga4", title: "Google Analytics", description: "Website visitors, visits, engagement, channels, pages and goals.", sources: ["ga4"], requires: ["ga4"] },
@@ -64,12 +73,32 @@ const tile = (id: string, metric: string, x: number, y: number, w = 3): W => ({ 
 const tiles = (p: string, metrics: string[], perRow = 4): W[] => metrics.map((m, i) => tile(`${p}-${m.split(".")[1]}`, m, (i % perRow) * (12 / perRow), Math.floor(i / perRow) * 2, 12 / perRow));
 const rowsOf = (n: number, perRow = 4) => Math.ceil(n / perRow) * 2;
 
+/** An ad platform section: number tiles, the trend, spend by campaign and the campaign table (all limited to the platform). */
+function platformWidgets(p: string, metrics: string[], withCampaignShare = true): W[] {
+  const y = rowsOf(metrics.length);
+  return [
+    ...tiles(p, metrics),
+    { id: `${p}-trend`, kind: "line", title: "Performance over time", metrics: ["ads.spend", metrics.includes("ads.leads") && !metrics.includes("ads.clicks") ? "ads.leads" : "ads.conversions", "ads.clicks"], x: 0, y, w: withCampaignShare ? 8 : 12, h: 4 },
+    ...(withCampaignShare ? [{ id: `${p}-spend-campaign`, kind: "pie" as const, title: "Spend by campaign", metrics: ["ads.spend"], dimension: "campaign", x: 8, y, w: 4, h: 4 }] : []),
+    { id: `${p}-campaigns`, kind: "campaigns", title: "Campaign performance", x: 0, y: y + 4, w: 12, h: 7 },
+  ];
+}
+
 /**
  * Default widgets for a section type. `p` prefixes every widget id, so two
  * sections (or a reset) never share ids and saved widgets keep their data.
  */
 export function sectionTemplate(type: SectionType, p: string, linked?: MetricSource[]): W[] {
   switch (type) {
+    case "google_ads":
+    case "microsoft_ads": {
+      const m = ["ads.spend", "ads.impressions", "ads.clicks", "ads.ctr", "ads.cpc", "ads.conversions", "ads.costPerConversion", "ads.conversionRate", "ads.conversionValue", "ads.roas"];
+      return platformWidgets(p, m);
+    }
+    case "meta_ads":
+      return platformWidgets(p, ["ads.spend", "ads.impressions", "ads.clicks", "ads.ctr", "ads.cpc", "ads.leads", "ads.costPerLead", "ads.conversions", "ads.costPerConversion", "ads.roas"]);
+    case "lsa":
+      return platformWidgets(p, ["ads.spend", "ads.leads", "ads.costPerLead", "ads.conversions", "ads.costPerConversion", "ads.impressions", "ads.clicks"], false);
     case "ads": {
       const m = ["ads.spend", "ads.impressions", "ads.clicks", "ads.ctr", "ads.cpc", "ads.conversions", "ads.costPerConversion", "ads.conversionRate", "ads.conversionValue", "ads.roas"];
       const y = rowsOf(m.length);
@@ -132,10 +161,19 @@ export function sectionTemplate(type: SectionType, p: string, linked?: MetricSou
   }
 }
 
-/** Section types whose data is connected for the client. */
-export function availableSectionTypes(linked: MetricSource[]): SectionType[] {
-  return SECTION_TYPES.filter((d) => d.requires.some((s) => linked.includes(s))).map((d) => d.type);
+/**
+ * Section types whose data is connected for the client. Ad platform sections
+ * need an account on that platform (`platforms`); without the list (older
+ * callers) any ad account counts.
+ */
+export function availableSectionTypes(linked: MetricSource[], platforms?: PlatformKey[]): SectionType[] {
+  return SECTION_TYPES.filter((d) => d.requires.some((s) => linked.includes(s)) && (!d.platform || !platforms || platforms.includes(d.platform))).map((d) => d.type);
 }
+
+/** The default sections: every available type except the optional ones (the combined Paid Media view). */
+// Without the platform list, ads stay one combined Paid Media section.
+const defaultTypes = (linked: MetricSource[], platforms?: PlatformKey[]) =>
+  availableSectionTypes(linked, platforms).filter((t) => (platforms ? !SECTION_TYPE[t].optional : !SECTION_TYPE[t].platform));
 
 const sectionId = (type: SectionType, n = 1) => (n === 1 ? `s-${type}` : `s-${type}-${n}`);
 
@@ -149,8 +187,8 @@ export function newSection(type: SectionType, existing: Pick<ReportSection, "id"
 }
 
 /** The default report for a client: one section per connected integration, in the standard order. */
-export function defaultReportLayout(linked: MetricSource[]): ReportLayout {
-  const types = availableSectionTypes(linked);
+export function defaultReportLayout(linked: MetricSource[], platforms?: PlatformKey[]): ReportLayout {
+  const types = defaultTypes(linked, platforms);
   const sections: ReportSection[] = [];
   for (const t of types) sections.push(newSection(t, sections, linked));
   return { version: REPORT_SECTIONS_VERSION, sections, removed: [], known: types };
@@ -260,9 +298,11 @@ export function readReportLayout(widgetsJson: unknown, layoutVersion: number): R
  * Integrations connected since the layout was customized: their section isn't
  * in the report, wasn't removed on purpose and hasn't been offered before.
  */
-export function newlyAvailableSections(layout: ReportLayout, linked: MetricSource[]): SectionType[] {
+export function newlyAvailableSections(layout: ReportLayout, linked: MetricSource[], platforms?: PlatformKey[]): SectionType[] {
   const present = new Set(layout.sections.map((s) => s.type));
-  return availableSectionTypes(linked).filter((t) => !present.has(t) && !layout.removed.includes(t) && !layout.known.includes(t));
+  // Platform sections are new only if the report doesn't already cover ads with Paid Media.
+  const coversAds = present.has("ads") || layout.known.includes("ads");
+  return defaultTypes(linked, platforms).filter((t) => !(coversAds && SECTION_TYPE[t].platform)).filter((t) => !present.has(t) && !layout.removed.includes(t) && !layout.known.includes(t));
 }
 
 /** Data sources the report's sections cover (for the AI summary). */

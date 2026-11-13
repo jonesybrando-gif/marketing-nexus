@@ -20,6 +20,15 @@ describe("report section templates", () => {
     expect(availableSectionTypes(["rank"])).toEqual(["seo"]);
   });
 
+  it("gives each connected ad platform its own section, with Paid Media (all platforms) optional", () => {
+    expect(defaultReportLayout(["ads", "callrail"], ["GOOGLE_ADS", "META_ADS"]).sections.map((s) => s.type)).toEqual(["google_ads", "meta_ads", "callrail", "pacing"]);
+    expect(defaultReportLayout(["ads"], ["GOOGLE_LSA"]).sections.map((s) => s.type)).toEqual(["lsa", "pacing"]);
+    expect(availableSectionTypes(["ads"], ["META_ADS"])).toEqual(["meta_ads", "ads", "pacing"]);
+    // A report that already covers ads with Paid Media isn't offered platform sections.
+    const old = defaultReportLayout(["ads"]);
+    expect(newlyAvailableSections(old, ["ads", "callrail"], ["GOOGLE_ADS"])).toEqual(["callrail"]);
+  });
+
   it("lays out SEO from what is connected", () => {
     const gscOnly = sectionTemplate("seo", "x", ["gsc"]);
     expect(gscOnly.some((w) => w.kind === "rankings")).toBe(false);

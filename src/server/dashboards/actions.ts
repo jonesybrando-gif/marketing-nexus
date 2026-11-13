@@ -1,5 +1,6 @@
 "use server";
 
+import { PLATFORM_LABEL, type PlatformKey } from "@/lib/platforms";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import type { Prisma } from "@prisma/client";
@@ -8,7 +9,7 @@ import { requireUser } from "../auth";
 import { requireAdmin, requireClientEdit } from "../access";
 import { loadClientReport, type ReportParams } from "../client-report";
 import { loadDashboardFor } from "./access";
-import { contextFromReport, resolveWidgets } from "./data";
+import { contextFromReport, resolveWidgets, scopeToPlatform } from "./data";
 import { linkedSources } from "./sources";
 import { DASHBOARD_TEMPLATES } from "@/lib/dashboards/templates";
 import { cleanName, copyWidgets, planTemplateApplication, resolveTemplateChoices, uniqueName } from "@/lib/dashboards/apply";
@@ -197,7 +198,7 @@ export async function createTemplateAction(_prev: CreateDashboardState, form: Fo
 }
 
 /** Data for one widget while editing (added or changed, not yet saved). */
-export async function previewWidgetAction(clientId: string, widget: unknown, params: ReportParams): Promise<WidgetData> {
+export async function previewWidgetAction(clientId: string, widget: unknown, params: ReportParams, platform?: string): Promise<WidgetData> {
   await requireClientEdit(clientId);
   const parsed = parseWidgets([widget]);
   if (!parsed.ok) return { kind: "empty", reason: "no_data", source: null, message: parsed.error };
@@ -206,7 +207,10 @@ export async function previewWidgetAction(clientId: string, widget: unknown, par
     loadClientReport(clientId, { range: p.range, compare: p.compare, from: p.from, to: p.to }),
     linkedSources(clientId),
   ]);
-  const data = await resolveWidgets(parsed.widgets, contextFromReport(rep, linked));
+  const base = contextFromReport(rep, linked);
+  // A widget in an ad platform section (Google Ads, Meta Ads…) previews that platform only.
+  const ctx = platform && platform in PLATFORM_LABEL ? await scopeToPlatform(base, platform as PlatformKey) : base;
+  const data = await resolveWidgets(parsed.widgets, ctx);
   return data[parsed.widgets[0].id];
 }
 

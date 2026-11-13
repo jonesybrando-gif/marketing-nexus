@@ -25,7 +25,7 @@ import type { DashboardData, WidgetData } from "@/lib/dashboards/widget-data";
 export interface AdData {
   perf: ClientPerformance;
   cmpPerf: ClientPerformance | null;
-  campaigns: { id: string; name: string }[];
+  campaigns: { id: string; name: string; accountId?: string }[];
   accounts: { id: string; name: string; platform: PlatformKey }[];
   /** The report's account filter (performance already limited to these); null = all accounts. */
   accountIds?: string[] | null;
@@ -65,9 +65,25 @@ export function adDataFromReport(rep: Pick<ClientReport, "perf" | "cmpPerf" | "c
     accountIds: rep.accountScope?.ids ?? null,
     perf: rep.perf,
     cmpPerf: rep.cmpPerf,
-    campaigns: rep.client.accounts.flatMap((a) => a.campaigns.map((c) => ({ id: c.id, name: c.name }))),
+    campaigns: rep.client.accounts.flatMap((a) => a.campaigns.map((c) => ({ id: c.id, name: c.name, accountId: a.id }))),
     accounts: rep.client.accounts.map((a) => ({ id: a.id, name: a.name, platform: a.platform as PlatformKey })),
   };
+}
+
+/**
+ * The same context limited to one ad platform (a Google Ads or Meta Ads
+ * report section): that platform's accounts within the page's account filter,
+ * their campaigns, and performance for just those accounts. No accounts on
+ * the platform: no ad data, so ad widgets show their not-connected state.
+ */
+export async function scopeToPlatform(ctx: ResolveContext, platform: PlatformKey, deps: Pick<ResolverDeps, "adPerformance"> = defaultResolverDeps): Promise<ResolveContext> {
+  if (!ctx.ads) return ctx;
+  const scope = ctx.ads.accountIds;
+  const accounts = ctx.ads.accounts.filter((a) => a.platform === platform && (!scope || scope.includes(a.id)));
+  if (!accounts.length) return { ...ctx, ads: null };
+  const ids = accounts.map((a) => a.id);
+  const [perf, cmpPerf] = await Promise.all([deps.adPerformance(ctx.clientId, ctx.range, ids), ctx.cmpRange ? deps.adPerformance(ctx.clientId, ctx.cmpRange, ids) : Promise.resolve(null)]);
+  return { ...ctx, ads: { ...ctx.ads, accounts, accountIds: ids, perf, cmpPerf, campaigns: ctx.ads.campaigns.filter((c) => !c.accountId || ids.includes(c.accountId)) } };
 }
 
 export function contextFromReport(rep: ClientReport, linked: MetricSource[], staff = false): ResolveContext {

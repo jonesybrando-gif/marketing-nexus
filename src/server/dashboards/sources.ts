@@ -1,3 +1,4 @@
+import type { PlatformKey } from "@/lib/platforms";
 import "server-only";
 import type { DataAssetKind } from "@prisma/client";
 import { prisma } from "../db";
@@ -53,6 +54,12 @@ export async function linkedSources(clientId: string): Promise<MetricSource[]> {
   const out = new Set<MetricSource>(assets.flatMap((a) => KIND_SOURCES[a.kind] ?? []));
   if (ads > 0) out.add("ads");
   return [...out];
+}
+
+/** The ad platforms a client has accounts on (for Google Ads, Meta Ads… report sections). */
+export async function adPlatforms(clientId: string): Promise<PlatformKey[]> {
+  const rows = await prisma.adAccount.findMany({ where: { clientId }, select: { platform: true }, distinct: ["platform"] });
+  return rows.map((r) => r.platform as PlatformKey);
 }
 
 export type CallLogFn = (clientId: string, opts: { from: IsoDate; to: IsoDate; limit?: number; staff: boolean }) => Promise<{ rows: CallLogRow[]; total: number; timeZone: string | null }>;

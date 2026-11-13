@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { AlertTriangle, CalendarRange, EyeOff, Plug, RefreshCw, Unplug } from "lucide-react";
 import type { PacingRow } from "@/server/pacing-service";
 import type { ClientReport, ReportParams } from "@/server/client-report";
+import type { PlatformKey } from "@/lib/platforms";
 import { PRESET_LABEL } from "@/lib/date-ranges";
 import { derive, type MetricTotals } from "@/lib/metrics";
 import { ALL_KPI_KEYS, dailyKpiValue, KPI_BY_KEY, kpiValues, untrackedKpis, type KpiKey, type KpiValue } from "@/lib/kpis";
@@ -464,10 +465,10 @@ export function TrendsSection({ rep, marker, metrics, title = "Performance trend
   );
 }
 
-export function campaignRows(rep: ClientReport): CampaignRow[] {
-  // Only the accounts the page adds up (the account selector, one currency).
+export function campaignRows(rep: ClientReport, platform?: PlatformKey): CampaignRow[] {
+  // Only the accounts the page adds up (the account selector, one currency), and one platform when asked.
   const ids = rep.accountScope?.ids;
-  return rep.client.accounts.filter((a) => !ids || ids.includes(a.id)).flatMap((a) =>
+  return rep.client.accounts.filter((a) => (!ids || ids.includes(a.id)) && (!platform || a.platform === platform)).flatMap((a) =>
     a.campaigns.map((cmp) => {
       const m = rep.perf.byCampaign[cmp.id];
       return {
@@ -488,7 +489,7 @@ export function campaignRows(rep: ClientReport): CampaignRow[] {
   );
 }
 
-export function CampaignsSection({ rep, staff, basePath, marker, detail, description }: { rep: ClientReport; staff: boolean; basePath: string; marker?: ReactNode; detail?: { clientId: string; params: ReportParams }; description?: string }) {
+export function CampaignsSection({ rep, staff, basePath, marker, detail, description, platform }: { rep: ClientReport; staff: boolean; basePath: string; marker?: ReactNode; detail?: { clientId: string; params: ReportParams }; description?: string; platform?: PlatformKey }) {
   const { preset, range } = rep;
   return (
     <Card>
@@ -499,7 +500,7 @@ export function CampaignsSection({ rep, staff, basePath, marker, detail, descrip
         </div>
         <CardDescription>{description ?? `${PRESET_LABEL[preset]} · sorted by spend. Click a column to re-sort.`}</CardDescription>
       </CardHeader>
-      <CampaignTable rows={campaignRows(rep)} currency={rep.client.currency} detail={detail} />
+      <CampaignTable rows={campaignRows(rep, platform)} currency={rep.client.currency} detail={detail} />
       <div className="h-4" />
     </Card>
   );
