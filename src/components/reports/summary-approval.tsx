@@ -22,7 +22,7 @@ export function SummaryApproval({ clientId, insightId, approved }: { clientId: s
         </>
       ) : (
         <>
-          <span className="text-text-2">Clients see the automatic summary until you approve this AI-written one.</span>
+          <span className="text-text-2">Clients see the automatic summary until you approve this one.</span>
           <Button type="submit" size="sm" variant="outline" disabled={pending}>{pending ? "Approving…" : "Approve for client reports"}</Button>
         </>
       )}
