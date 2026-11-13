@@ -7,7 +7,8 @@ import { getClientPerformance } from "@/server/reporting";
 import { loadPacing } from "@/server/pacing-service";
 import { PLATFORM_LABEL, type PlatformKey } from "@/lib/platforms";
 import { formatMoney } from "@/lib/money";
-import { BudgetPacingTable } from "../budget-pacing-table";
+import { displayCampaignName } from "@/lib/campaign-name";
+import { BudgetPacingTable, type CampaignBudgetLine } from "../budget-pacing-table";
 import { monthLabel } from "../budgets-view";
 
 /**
@@ -24,6 +25,18 @@ export async function ClientBudgetTable({ clientId, user, canEdit, range }: { cl
   const where = { id: clientId, agencyId: user.agencyId, archivedAt: null };
   const [rows, pacing] = await Promise.all([loadBudgetPacingRows(where, month), loadPacing(where, new Date(), month.isCurrent ? undefined : month.start)]);
   // Budgets set per account or campaign beneath a combined budget (sub-allocations), by platform.
+  const campaignBudgets: CampaignBudgetLine[] = (pacing[0]?.subRows ?? [])
+    .filter((sr) => sr.level === "CAMPAIGNS" && sr.result && sr.accounts.length === 1 && sr.platforms.length === 1)
+    .map((sr) => ({
+      key: sr.key,
+      name: displayCampaignName(sr.label),
+      platform: sr.platforms[0],
+      accountId: sr.accounts[0].id,
+      budgetMinor: sr.result!.budgetMinor,
+      spendMinor: sr.notConnected ? null : sr.result!.actualToDateMinor,
+      elapsedFraction: sr.result!.totalDays ? Math.min(1, sr.result!.elapsedDays / sr.result!.totalDays) : null,
+    }))
+    .sort((a, b) => b.budgetMinor - a.budgetMinor);
   const subBudget = new Map<PlatformKey, number>();
   for (const sr of pacing[0]?.subRows ?? []) {
     if (!sr.result || sr.platforms.length !== 1) continue;
@@ -75,6 +88,7 @@ export async function ClientBudgetTable({ clientId, user, canEdit, range }: { cl
         accountNames={Object.fromEntries(client.accounts.map((a) => [a.id, a.name]))}
         overview={{ currency: client.currency, rangeNote, notes }}
         platformSpend={platformSpend}
+        campaignBudgets={campaignBudgets}
       />
     </section>
   );

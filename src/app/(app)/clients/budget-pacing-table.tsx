@@ -62,6 +62,7 @@ export function BudgetPacingTable({
   accountNames = {},
   overview,
   platformSpend = {},
+  campaignBudgets = [],
 }: {
   rows: SimpleRow[];
   month: MonthOption;
@@ -77,6 +78,8 @@ export function BudgetPacingTable({
   overview?: { currency: string; rangeNote?: string | null; notes?: string[] };
   /** Client variant: spend by platform under a budget shared by several platforms (row key → platforms). */
   platformSpend?: Record<string, { platform: PlatformKey; budgetMinor: number | null; spendMinor: number | null }[]>;
+  /** Client variant: campaign budgets, listed under their platform or account row. */
+  campaignBudgets?: CampaignBudgetLine[];
 }) {
   const single = variant === "client";
   /** Client variant: the accounts behind a row by name (platform underneath). */
@@ -278,29 +281,19 @@ export function BudgetPacingTable({
                     )}
                   </td>
                 </tr>
-                {parts.map((p) => {
-                  const ps = classifySimplePacing({ budgetMinor: p.budgetMinor, spendMinor: p.spendMinor, elapsedFraction: r.elapsedFraction }, money(r));
-                  const pLeft = p.budgetMinor !== null && p.spendMinor !== null ? p.budgetMinor - p.spendMinor : null;
-                  return (
-                    <tr key={p.platform}>
-                      <td className="py-2 pl-3 pr-1.5 sm:pl-5 sm:pr-3">
-                        <span className="flex min-w-0 items-center gap-2 pl-6">
-                          <span aria-hidden className="text-text-3">↳</span>
-                          <span className="min-w-0">
-                            <span className="block truncate text-text">{PLATFORM_LABEL[p.platform]}</span>
-                            <span className={cn("block truncate text-xs font-medium sm:hidden", ps.tone === "red" ? "text-critical-ink" : ps.tone === "amber" ? "text-warning-ink" : ps.tone === "green" ? "text-good-ink" : "text-text-3")}>{PACING_LABEL[ps.status]}</span>
-                          </span>
-                        </span>
-                      </td>
-                      <td className="px-1.5 py-2 text-right whitespace-nowrap sm:px-3">{p.budgetMinor === null ? <span className="text-xs text-text-3" title="No budget set for this platform; it's paced only as part of the combined budget.">Not set</span> : money(r)(p.budgetMinor)}</td>
-                      <td className="px-1.5 py-2 text-right whitespace-nowrap sm:px-3">{p.spendMinor === null ? <span className="text-text-3" title="No spend data">—</span> : money(r)(p.spendMinor)}</td>
-                      <td className={cn("py-2 pl-1.5 pr-3 text-right whitespace-nowrap sm:px-3", pLeft !== null && pLeft < 0 ? "text-critical-ink" : "text-text-2")}>{pLeft === null ? <span className="text-text-3">—</span> : formatSignedMoney(pLeft, money(r))}</td>
-                      <td className="hidden py-2 pr-5 pl-3 whitespace-nowrap sm:table-cell">
-                        {p.budgetMinor !== null && <PacingStatus status={ps.status} label={PACING_LABEL[ps.status]} message={ps.message} />}
-                      </td>
-                    </tr>
-                  );
-                })}
+                {parts.length > 0
+                  ? parts.map((p) => (
+                      <Fragment key={p.platform}>
+                        <SubRow label={PLATFORM_LABEL[p.platform]} depth={1} budgetMinor={p.budgetMinor} spendMinor={p.spendMinor} elapsedFraction={r.elapsedFraction} money={money(r)} />
+                        {campaignBudgets.filter((c) => c.platform === p.platform && (r.accountIds ?? []).includes(c.accountId)).map((c) => (
+                          <SubRow key={c.key} label={c.name} depth={2} budgetMinor={c.budgetMinor} spendMinor={c.spendMinor} elapsedFraction={c.elapsedFraction} money={money(r)} campaign />
+                        ))}
+                      </Fragment>
+                    ))
+                  : single &&
+                    campaignBudgets.filter((c) => (r.accountIds ?? []).includes(c.accountId)).map((c) => (
+                      <SubRow key={c.key} label={c.name} depth={1} budgetMinor={c.budgetMinor} spendMinor={c.spendMinor} elapsedFraction={c.elapsedFraction} money={money(r)} campaign />
+                    ))}
                 </Fragment>
               );
             })}
@@ -326,6 +319,40 @@ export function BudgetPacingTable({
         </table>
       </div>
     </div>
+  );
+}
+
+export interface CampaignBudgetLine {
+  key: string;
+  name: string;
+  platform: PlatformKey;
+  accountId: string;
+  budgetMinor: number;
+  spendMinor: number | null;
+  elapsedFraction: number | null;
+}
+
+/** A platform or campaign line under a client's budget row: budget, spent, remaining and pacing. */
+function SubRow({ label, depth, budgetMinor, spendMinor, elapsedFraction, money: m, campaign = false }: { label: string; depth: 1 | 2; budgetMinor: number | null; spendMinor: number | null; elapsedFraction: number | null; money: (minor: number) => string; campaign?: boolean }) {
+  const ps = classifySimplePacing({ budgetMinor, spendMinor, elapsedFraction }, m);
+  const left = budgetMinor !== null && spendMinor !== null ? budgetMinor - spendMinor : null;
+  const tone = ps.tone === "red" ? "text-critical-ink" : ps.tone === "amber" ? "text-warning-ink" : ps.tone === "green" ? "text-good-ink" : "text-text-3";
+  return (
+    <tr className={cn(campaign && "text-[13px]")}>
+      <td className="py-2 pl-3 pr-1.5 sm:pl-5 sm:pr-3">
+        <span className={cn("flex min-w-0 items-center gap-2", depth === 1 ? "pl-6" : "pl-12")}>
+          <span aria-hidden className="text-text-3">↳</span>
+          <span className="min-w-0">
+            <span className={cn("block truncate", campaign ? "text-text-2" : "text-text")} title={label}>{campaign && <span className="text-text-3">Campaign · </span>}{label}</span>
+            {budgetMinor !== null && <span className={cn("block truncate text-xs font-medium sm:hidden", tone)}>{PACING_LABEL[ps.status]}</span>}
+          </span>
+        </span>
+      </td>
+      <td className="px-1.5 py-2 text-right whitespace-nowrap sm:px-3">{budgetMinor === null ? <span className="text-xs text-text-3" title="No budget set for this platform; it's paced only as part of the combined budget.">Not set</span> : m(budgetMinor)}</td>
+      <td className="px-1.5 py-2 text-right whitespace-nowrap sm:px-3">{spendMinor === null ? <span className="text-text-3" title="No spend data">—</span> : m(spendMinor)}</td>
+      <td className={cn("py-2 pl-1.5 pr-3 text-right whitespace-nowrap sm:px-3", left !== null && left < 0 ? "text-critical-ink" : "text-text-2")}>{left === null ? <span className="text-text-3">—</span> : formatSignedMoney(left, m)}</td>
+      <td className="hidden py-2 pr-5 pl-3 whitespace-nowrap sm:table-cell">{budgetMinor !== null && <PacingStatus status={ps.status} label={PACING_LABEL[ps.status]} message={ps.message} />}</td>
+    </tr>
   );
 }
 
