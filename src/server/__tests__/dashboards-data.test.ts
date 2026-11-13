@@ -134,6 +134,24 @@ describe("resolveWidgets", () => {
     expect(out.c).toMatchObject({ kind: "breakdown", rows: [{ label: "Brand", values: { "ads.clicks": 33, "ads.costPerConversion": 3000 } }] });
   });
 
+  it("breaks ad figures down by platform, adding up accounts on the same platform", async () => {
+    const twoGoogle = { ...ads, accounts: [...ads.accounts, { id: "acc3", name: "Second", platform: "GOOGLE_ADS" as const }], perf: { ...ads.perf, byAccount: { ...ads.perf.byAccount, acc3: { ...ads.perf.byAccount.acc1, costMinor: 1000, clicks: 10 } } } };
+    const out = await resolveWidgets([W({ id: "n", kind: "bar", metrics: ["ads.spend", "ads.cpc"], dimension: "network" })], ctx({ ads: twoGoogle }), deps());
+    // Google Ads: 6,000 + 1,000 spend over 30 + 10 clicks → CPC from the sums (175), not an average of CPCs.
+    expect(out.n).toMatchObject({ kind: "breakdown", dimensionLabel: "Platform", rows: [{ label: "Google Ads", values: { "ads.spend": 7000, "ads.cpc": 175 } }, { label: "Meta Ads", values: { "ads.spend": 3000 } }] });
+  });
+
+  it("passes the report's account filter to extra ad queries", async () => {
+    const d = deps();
+    await resolveWidgets([W({ id: "k", kind: "kpi", metrics: ["ads.spend"], range: "last_7" })], ctx({ ads: { ...ads, accountIds: ["acc1"] } }), d);
+    expect((d.adPerformance as unknown as { mock: { calls: unknown[][] } }).mock.calls[0][2]).toEqual(["acc1"]);
+  });
+
+  it("labels a Number tile's comparison by the page's comparison mode", async () => {
+    const out = await resolveWidgets([W({ id: "k", kind: "kpi", metrics: ["ads.spend"] })], ctx({ compareMode: "previous_month" }), deps());
+    expect(out.k).toMatchObject({ vsLabel: "previous month" });
+  });
+
   it("honours a widget's own range with its own comparison", async () => {
     const d = deps();
     const out = await resolveWidgets([W({ id: "k", kind: "kpi", metrics: ["ads.spend"], range: "last_7" }), W({ id: "g", kind: "kpi", metrics: ["ga4.sessions"], range: "last_7" })], ctx(), d);

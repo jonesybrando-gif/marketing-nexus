@@ -47,6 +47,18 @@ const pctWords = (p: number) => `${Math.round(Math.abs(p))}%`;
  * full sentence for screen readers. `previousText` is the formatted previous
  * value; `label` names the metric in the spoken sentence.
  */
+/**
+ * The short form for small tiles: "↑ 93% vs. previous period",
+ * "↓ 33% vs. previous month", "— No significant change", "— Too few to
+ * compare". The full wording (changeWords) goes in the tooltip.
+ */
+export function shortChangeWords(verdict: Verdict | null, changePct: number | null, vsLabel: string): string {
+  if (verdict === null || changePct === null) return "";
+  if (verdict === "few") return "— Too few to compare";
+  if (verdict === "same" || Math.round(Math.abs(changePct)) === 0) return "— No significant change";
+  return `${changePct > 0 ? "↑" : "↓"} ${pctWords(changePct)} vs. ${vsLabel}`;
+}
+
 export function changeWords(verdict: Verdict | null, changePct: number | null, previousText: string, label: string): { text: string; aria: string } {
   if (verdict === null || changePct === null) return { text: "", aria: "" };
   if (verdict === "few") return { text: `Too few to compare (was ${previousText})`, aria: `${label}: too few to compare with the previous period (${previousText}).` };

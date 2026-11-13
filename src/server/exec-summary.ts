@@ -19,7 +19,13 @@ export type ExecSummary = ExecutiveSummaryContent & { source: "ai" | "auto" };
 /** Bumped when the stored shape changes, so older cached summaries are rewritten. */
 const VERSION = 3;
 
-const compareKey = (rep: ClientReport) => (rep.cmpRange ? `${rep.cmpRange.from}..${rep.cmpRange.to}` : "none");
+/**
+ * Comparison period, plus the account filter when the report is limited to
+ * some ad accounts, so a filtered view never reuses the all-accounts summary
+ * (and existing all-accounts summaries keep their key and approval).
+ */
+const compareKey = (rep: ClientReport) =>
+  (rep.cmpRange ? `${rep.cmpRange.from}..${rep.cmpRange.to}` : "none") + (rep.accountScope?.ids ? `|accounts:${[...rep.accountScope.ids].sort().join(",")}` : "");
 
 export function automaticSummary(rep: ClientReport): ExecSummary {
   return { ...autoExecutiveSummary(contextInput(rep)), source: "auto" };
@@ -139,6 +145,25 @@ function startGeneration(rep: ClientReport, key: string): Promise<ExecutiveSumma
     inFlight.set(key, p);
   }
   return p;
+}
+
+/**
+ * Writes a fresh AI summary for this range now (the "Regenerate" button). The
+ * newest one is shown from then on; an earlier approved summary keeps
+ * reaching clients until the new one is approved. Returns false when AI
+ * summaries are off for this client or the AI isn't available.
+ */
+export async function regenerateExecutiveSummary(rep: ClientReport): Promise<boolean> {
+  if (!wantsAiSummary(rep)) return false;
+  const key = summaryKey(rep);
+  failedAt.delete(key);
+  try {
+    await startGeneration(rep, key);
+    return true;
+  } catch (e) {
+    console.error("Executive summary: regenerate failed", e);
+    return false;
+  }
 }
 
 /** True while an AI summary for this key is being written. */

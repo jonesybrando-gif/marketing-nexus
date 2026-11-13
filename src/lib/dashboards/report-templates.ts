@@ -34,27 +34,29 @@ const num = (id: string, metric: string, x: number, y: number, w = 2): Dashboard
 const chart = (id: string, kind: "line" | "area" | "bar", metrics: string[], x: number, y: number, w: number, title?: string): DashboardWidget => ({ id, kind, metrics, x, y, w, h: 4, ...(title ? { title } : {}) });
 const donut = (id: string, metric: string, dimension: string, x: number, y: number, w: number, title?: string): DashboardWidget => ({ id, kind: "pie", metrics: [metric], dimension, x, y, w, h: 4, ...(title ? { title } : {}) });
 
-/** A row of Number tiles across the 12 columns (2, 3, 4 or 6 per row). */
-function numberRow(prefix: string, metrics: string[], y = 0): DashboardWidget[] {
-  const w = Math.max(2, Math.floor(12 / metrics.length));
-  return metrics.map((m, i) => num(`${prefix}-${m.split(".")[1]}`, m, i * w, y, w));
+/** Number tiles, four per row (each 3 of the 12 columns), wrapping onto more rows. */
+const PER_ROW = 4;
+function numberRows(prefix: string, metrics: string[], y = 0): DashboardWidget[] {
+  const w = 12 / PER_ROW;
+  return metrics.map((m, i) => num(`${prefix}-${m.split(".")[1]}`, m, (i % PER_ROW) * w, y + Math.floor(i / PER_ROW) * 2, w));
 }
+const rowsHeight = (n: number) => Math.ceil(n / PER_ROW) * 2;
 
 // --- Blocks ---
 
 const adsBlock = (prefix: string, metrics: string[]): ReportBlock => ({
   source: "ads",
   widgets: [
-    ...numberRow(prefix, metrics),
-    chart(`${prefix}-trend`, "line", ["ads.spend", "ads.conversions", "ads.clicks"], 0, 2, 8, "Spend and results by day"),
-    donut(`${prefix}-share`, "ads.spend", "platform", 8, 2, 4, "Spend by ad account"),
+    ...numberRows(prefix, metrics),
+    chart(`${prefix}-trend`, "line", ["ads.spend", "ads.conversions", "ads.clicks"], 0, rowsHeight(metrics.length), 7, "Spend and results by day"),
+    donut(`${prefix}-share`, "ads.spend", "platform", 7, rowsHeight(metrics.length), 5, "Spend by ad account"),
   ],
 });
 
 const ga4Block: ReportBlock = {
   source: "ga4",
   widgets: [
-    ...numberRow("r-ga4", ["ga4.sessions", "ga4.totalUsers", "ga4.engagementRate", "ga4.keyEvents"]),
+    ...numberRows("r-ga4", ["ga4.sessions", "ga4.totalUsers", "ga4.engagementRate", "ga4.keyEvents"]),
     chart("r-ga4-trend", "area", ["ga4.sessions", "ga4.totalUsers"], 0, 2, 8, "Website visits by day"),
     donut("r-ga4-channels", "ga4.sessions", "channel", 8, 2, 4, "Visits by channel"),
   ],
@@ -63,7 +65,7 @@ const ga4Block: ReportBlock = {
 const gscBlock: ReportBlock = {
   source: "gsc",
   widgets: [
-    ...numberRow("r-gsc", ["gsc.clicks", "gsc.impressions", "gsc.ctr", "gsc.position"]),
+    ...numberRows("r-gsc", ["gsc.clicks", "gsc.impressions", "gsc.ctr", "gsc.position"]),
     chart("r-gsc-trend", "line", ["gsc.clicks", "gsc.impressions"], 0, 2, 12, "Google Search clicks by day"),
   ],
 };
@@ -73,21 +75,22 @@ export const REPORT_TEMPLATES: ReportTemplate[] = [
     key: "standard",
     name: "Standard",
     description: "Headline ad results, then website traffic and Google Search when connected.",
-    blocks: [adsBlock("r-ads", ["ads.spend", "ads.conversions", "ads.costPerConversion", "ads.clicks", "ads.ctr", "ads.cpc"]), ga4Block, gscBlock],
+    // Row 1: spend, conversions, cost per conversion, ROAS. Row 2: clicks, CTR, CPC, impressions.
+    blocks: [adsBlock("r-ads", ["ads.spend", "ads.conversions", "ads.costPerConversion", "ads.roas", "ads.clicks", "ads.ctr", "ads.cpc", "ads.impressions"]), ga4Block, gscBlock],
     fallback: "ads",
   },
   {
     key: "lead-generation",
     name: "Lead Generation",
     description: "Leads and what they cost, then website goals.",
-    blocks: [adsBlock("r-lead", ["ads.spend", "ads.leads", "ads.costPerLead", "ads.conversions", "ads.costPerConversion", "ads.conversionRate"]), ga4Block, gscBlock],
+    blocks: [adsBlock("r-lead", ["ads.spend", "ads.leads", "ads.costPerLead", "ads.conversions", "ads.costPerConversion", "ads.conversionRate", "ads.clicks", "ads.cpc"]), ga4Block, gscBlock],
     fallback: "ads",
   },
   {
     key: "ecommerce",
     name: "E-commerce",
     description: "Revenue and return on ad spend, then website traffic.",
-    blocks: [adsBlock("r-ecom", ["ads.spend", "ads.conversionValue", "ads.roas", "ads.conversions", "ads.costPerConversion", "ads.cpc"]), ga4Block, gscBlock],
+    blocks: [adsBlock("r-ecom", ["ads.spend", "ads.conversionValue", "ads.roas", "ads.conversions", "ads.costPerConversion", "ads.cpc", "ads.clicks", "ads.ctr"]), ga4Block, gscBlock],
     fallback: "ads",
   },
   {
@@ -102,9 +105,9 @@ export const REPORT_TEMPLATES: ReportTemplate[] = [
     name: "Executive Summary",
     description: "Four headline numbers per connected source.",
     blocks: [
-      { source: "ads", widgets: numberRow("r-exec-ads", ["ads.spend", "ads.conversions", "ads.costPerConversion", "ads.roas"]) },
-      { source: "ga4", widgets: numberRow("r-exec-ga4", ["ga4.sessions", "ga4.totalUsers", "ga4.keyEvents", "ga4.engagementRate"]) },
-      { source: "gsc", widgets: numberRow("r-exec-gsc", ["gsc.clicks", "gsc.impressions", "gsc.ctr", "gsc.position"]) },
+      { source: "ads", widgets: numberRows("r-exec-ads", ["ads.spend", "ads.conversions", "ads.costPerConversion", "ads.roas"]) },
+      { source: "ga4", widgets: numberRows("r-exec-ga4", ["ga4.sessions", "ga4.totalUsers", "ga4.keyEvents", "ga4.engagementRate"]) },
+      { source: "gsc", widgets: numberRows("r-exec-gsc", ["gsc.clicks", "gsc.impressions", "gsc.ctr", "gsc.position"]) },
     ],
     fallback: "ads",
   },

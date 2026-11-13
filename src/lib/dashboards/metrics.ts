@@ -70,8 +70,9 @@ export function metricsFor(source: MetricSource): MetricInfo[] {
 
 /** Ad breakdowns come from the ad report itself (per campaign / per ad account). */
 export const AD_DIMENSIONS = [
-  { dimension: "campaign", label: "Campaign" },
+  { dimension: "network", label: "Platform" },
   { dimension: "platform", label: "Ad account" },
+  { dimension: "campaign", label: "Campaign" },
 ] as const;
 
 /** Dimensions a source's metrics can be broken down by (MetricDaily.dimension values). */

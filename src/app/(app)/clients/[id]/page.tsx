@@ -212,7 +212,7 @@ export default async function ClientPage({ params, searchParams }: { params: Pro
   }
 
   return (
-    <div className="mx-auto flex max-w-[1400px] flex-col gap-6">
+    <div className="mx-auto flex max-w-[1400px] flex-col gap-4">
       {/* Header, date range and tabs stay in view while scrolling (desktop); on phones only the tabs stick, under the top bar. */}
       <div className="max-md:contents md:sticky md:top-0 md:z-20 md:-mx-10 md:-mt-8 md:flex md:flex-col md:gap-3 md:border-b md:border-border md:bg-background/95 md:px-10 md:pt-8 md:backdrop-blur">
         {header}
