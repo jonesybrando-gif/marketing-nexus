@@ -90,7 +90,7 @@ describe("buildSimpleRows", () => {
 
 describe("prioritySort", () => {
   const row = (key: string, clientName: string, budget: number, spend: number, platform: SimpleRow["platforms"][number] = "GOOGLE_ADS"): SimpleRow => ({
-    key, clientId: key, clientName, platforms: [platform], currency: "USD", budgetMinor: budget, spendMinor: spend, elapsedFraction: 0.5, asOf: null, warning: null, edit: null, editNote: null,
+    key, clientId: key, clientName, platforms: [platform], currency: "USD", budgetMinor: budget, spendMinor: spend, elapsedFraction: 0.5, asOf: null, warning: null, edit: null, editNote: null, daily: null, spendToDateMinor: null, remainingDays: null,
   });
   it("orders over budget, overspending, underspending, on pace, unknown; then by size of variance; then by name", () => {
     const rows = [

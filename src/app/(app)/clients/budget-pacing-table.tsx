@@ -14,16 +14,21 @@ import { Input, Select } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { saveMonthlyBudget } from "./budget-pacing-actions";
+import { compareAdjustments, recommendAdjustment, type Adjustment } from "@/lib/pacing/daily-budget";
 
 const FILTER_LABEL: Record<PlatformKey, string> = { ...PLATFORM_LABEL, GOOGLE_LSA: "Google Local Services Ads" };
 const DOT: Record<SimpleTone, string> = { red: "bg-critical", amber: "bg-dot-watch", green: "bg-good", gray: "bg-transparent ring-1 ring-inset ring-text-3/60" };
 
-type SortKey = "client" | "platform" | "budget" | "used" | "left";
+type SortKey = "client" | "platform" | "budget" | "used" | "left" | "adjust";
 type Sort = { key: SortKey; dir: 1 | -1 } | null;
 
 const money = (r: SimpleRow) => (m: number) => formatMoney(m, r.currency, { whole: true });
 const platformText = (r: SimpleRow) => platformSortLabel(r.platforms, PLATFORM_LABEL) || "—";
 const info = (r: SimpleRow) => classifySimplePacing(r, money(r));
+const adjustment = (r: SimpleRow) =>
+  recommendAdjustment({ budgetMinor: r.budgetMinor, spendToDateMinor: r.spendToDateMinor, remainingDays: r.remainingDays, currentDailyMinor: r.daily?.minor ?? null, currentDailyNote: r.daily?.note ?? null });
+const ADJ_TEXT: Record<Adjustment["tone"], string> = { red: "text-critical-ink", amber: "text-warning-ink", green: "text-good-ink", gray: "text-text-3" };
+const ADJ_DOT: Record<Adjustment["tone"], string> = { red: "bg-critical", amber: "bg-dot-watch", green: "bg-good", gray: "bg-transparent ring-1 ring-inset ring-text-3/60" };
 
 /** Numbers sort with unknown values last in either direction. */
 function byNumber(a: number | null, b: number | null, dir: 1 | -1) {
@@ -35,19 +40,40 @@ function byNumber(a: number | null, b: number | null, dir: 1 | -1) {
 
 export interface MonthOption { key: string; label: string }
 
-export function BudgetPacingTable({ rows: initialRows, month, months, editable }: { rows: SimpleRow[]; month: MonthOption; months: MonthOption[]; editable: Record<string, boolean> }) {
+export function BudgetPacingTable({
+  rows: initialRows,
+  month,
+  months,
+  editable,
+  labels = [],
+  labelsByClient = {},
+}: {
+  rows: SimpleRow[];
+  month: MonthOption;
+  months: MonthOption[];
+  editable: Record<string, boolean>;
+  labels?: { id: string; name: string }[];
+  labelsByClient?: Record<string, string[]>;
+}) {
   const router = useRouter();
   const [navigating, startNav] = useTransition();
   const [rows, setRows] = useState(initialRows);
   useEffect(() => setRows(initialRows), [initialRows]);
   const [q, setQ] = useState("");
   const [platform, setPlatform] = useState<PlatformKey | "">("");
+  const [label, setLabel] = useState("");
   const [sort, setSort] = useState<Sort>(null);
 
   const visible = useMemo(() => {
     const needle = q.trim().toLowerCase();
-    const out = rows.filter((r) => (!needle || r.clientName.toLowerCase().includes(needle)) && (!platform || r.platforms.includes(platform)));
-    if (!sort) return prioritySort(out, info, platformText);
+    const hasLabel = (r: SimpleRow) => {
+      if (!label) return true;
+      const ids = labelsByClient[r.clientId] ?? [];
+      return label === "none" ? ids.length === 0 : ids.includes(label);
+    };
+    const out = rows.filter((r) => (!needle || r.clientName.toLowerCase().includes(needle)) && (!platform || r.platforms.includes(platform)) && hasLabel(r));
+    // Default: who needs a daily budget change first (Pause / Review, biggest decreases, biggest increases…), then pacing.
+    if (!sort) return prioritySort(out, info, platformText).sort((a, b) => compareAdjustments(adjustment(a), adjustment(b)));
     const tie = (a: SimpleRow, b: SimpleRow) => a.clientName.localeCompare(b.clientName) || platformText(a).localeCompare(platformText(b));
     const cmp: Record<SortKey, (a: SimpleRow, b: SimpleRow) => number> = {
       client: (a, b) => a.clientName.localeCompare(b.clientName) * sort.dir || platformText(a).localeCompare(platformText(b)),
@@ -55,16 +81,17 @@ export function BudgetPacingTable({ rows: initialRows, month, months, editable }
       budget: (a, b) => byNumber(a.budgetMinor, b.budgetMinor, sort.dir) || tie(a, b),
       used: (a, b) => byNumber(a.spendMinor, b.spendMinor, sort.dir) || tie(a, b),
       left: (a, b) => byNumber(budgetLeft(a), budgetLeft(b), sort.dir) || tie(a, b),
+      adjust: (a, b) => compareAdjustments(adjustment(a), adjustment(b)) * sort.dir || tie(a, b),
     };
     return [...out].sort(cmp[sort.key]);
-  }, [rows, q, platform, sort]);
+  }, [rows, q, platform, label, labelsByClient, sort]);
 
   // Click: sort (A–Z for text, highest first for amounts); again: reverse; third time: back to most urgent first.
   const header = (key: SortKey, label: string, numeric = false, short?: string) => {
     const active = sort?.key === key;
     const ascending = active && (numeric ? sort.dir === -1 : sort.dir === 1);
     return (
-      <th scope="col" aria-sort={active ? (ascending ? "ascending" : "descending") : "none"} className={cn("px-3 py-2.5 text-xs font-medium text-text-3 whitespace-nowrap", numeric ? "text-right" : "text-left", key === "client" && "pl-3 sm:pl-5", key === "platform" && "hidden sm:table-cell", key === "left" && "pr-3 sm:pr-5", "max-sm:px-1.5")}>
+      <th scope="col" aria-sort={active ? (ascending ? "ascending" : "descending") : "none"} className={cn("px-3 py-2.5 text-xs font-medium text-text-3 whitespace-nowrap", numeric ? "text-right" : "text-left", key === "client" && "pl-3 sm:pl-5", key === "platform" && "hidden sm:table-cell", key === "adjust" && "hidden pr-3 sm:table-cell sm:pr-5", "max-sm:px-1.5")}>
         <button
           type="button"
           className={cn("inline-flex cursor-pointer items-center gap-1 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring rounded-sm", active && "text-text")}
@@ -78,8 +105,11 @@ export function BudgetPacingTable({ rows: initialRows, month, months, editable }
   };
 
   const exportCsv = () => {
-    const body = visible.map((r) => [r.clientName, platformText(r), minorToDecimal(r.budgetMinor), minorToDecimal(r.spendMinor), minorToDecimal(budgetLeft(r))]);
-    const blob = new Blob([toCsv(["Client", "Platform", "Monthly Budget", "Budget Used", "Budget Left"], body)], { type: "text/csv;charset=utf-8" });
+    const body = visible.map((r) => {
+      const adj = adjustment(r);
+      return [r.clientName, platformText(r), minorToDecimal(r.budgetMinor), minorToDecimal(r.spendMinor), minorToDecimal(budgetLeft(r)), adj.kind === "NONE" ? "" : adj.label];
+    });
+    const blob = new Blob([toCsv(["Client", "Platform", "Monthly Budget", "Budget Used", "Budget Left", "Adjustment Needed"], body)], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -103,6 +133,13 @@ export function BudgetPacingTable({ rows: initialRows, month, months, editable }
           <option value="">All Platforms</option>
           {PLATFORMS.map((p) => <option key={p} value={p}>{FILTER_LABEL[p]}</option>)}
         </Select>
+        {labels.length > 0 && (
+          <Select value={label} onChange={(e) => setLabel(e.target.value)} className="w-full sm:w-44" aria-label="Label">
+            <option value="">All Labels</option>
+            {labels.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+            <option value="none">No label</option>
+          </Select>
+        )}
         <Select
           value={month.key}
           onChange={(e) => startNav(() => router.push(`/clients?view=budgets&month=${e.target.value}`))}
@@ -118,13 +155,14 @@ export function BudgetPacingTable({ rows: initialRows, month, months, editable }
       </div>
 
       <div className={cn("overflow-x-auto rounded-xl border border-border bg-surface transition-opacity", navigating && "opacity-60")}>
-        <table className="w-full table-fixed text-[13px] tabular sm:min-w-[640px] sm:text-sm">
+        <table className="w-full table-fixed text-[13px] tabular sm:min-w-[760px] sm:text-sm">
           <colgroup>
             <col />
-            <col className="hidden w-[22%] sm:table-column" />
-            <col className="w-[23%] sm:w-[16%]" />
-            <col className="w-[20%] sm:w-[15%]" />
-            <col className="w-[20%] sm:w-[15%]" />
+            <col className="hidden w-[17%] sm:table-column" />
+            <col className="w-[21%] sm:w-[14%]" />
+            <col className="w-[19%] sm:w-[13%]" />
+            <col className="w-[19%] sm:w-[13%]" />
+            <col className="hidden w-[17%] sm:table-column" />
           </colgroup>
           <thead className="border-b border-border">
             <tr>
@@ -133,12 +171,14 @@ export function BudgetPacingTable({ rows: initialRows, month, months, editable }
               {header("budget", "Monthly Budget", true, "Budget")}
               {header("used", "Budget Used", true, "Used")}
               {header("left", "Budget Left", true, "Left")}
+              {header("adjust", "Adjustment Needed")}
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
             {visible.map((r) => {
               const s = info(r);
               const left = budgetLeft(r);
+              const adj = adjustment(r);
               return (
                 <tr key={r.key} className="hover:bg-surface-2/60">
                   <td className="py-2.5 pl-3 pr-1.5 sm:pl-5 sm:pr-3">
@@ -151,6 +191,7 @@ export function BudgetPacingTable({ rows: initialRows, month, months, editable }
                       <div className="min-w-0">
                         <Link {...loadOnHover} href={`/clients/${r.clientId}?tab=budgets`} className="block truncate font-medium text-text hover:underline" title={r.clientName}>{r.clientName}</Link>
                         <span className="block truncate text-xs text-text-3 sm:hidden">{platformText(r)}</span>
+                        {adj.kind !== "NONE" && <span className={cn("block truncate text-xs font-medium sm:hidden", ADJ_TEXT[adj.tone])}>{adj.label}</span>}
                       </div>
                     </div>
                   </td>
@@ -170,15 +211,18 @@ export function BudgetPacingTable({ rows: initialRows, month, months, editable }
                       {r.spendMinor === null ? <span className="text-text-3" title="No spend data">—</span> : <span title={r.asOf ? `Through ${formatDate(r.asOf)}` : undefined}>{money(r)(r.spendMinor)}</span>}
                     </span>
                   </td>
-                  <td className={cn("py-2.5 pl-1.5 pr-3 text-right font-semibold whitespace-nowrap sm:pl-3 sm:pr-5", left !== null && left < 0 ? "text-critical-ink" : "text-text")}>
+                  <td className={cn("py-2.5 pl-1.5 pr-3 text-right font-semibold whitespace-nowrap sm:px-3", left !== null && left < 0 ? "text-critical-ink" : "text-text")}>
                     {left === null ? <span className="font-normal text-text-3">—</span> : formatSignedMoney(left, money(r))}
+                  </td>
+                  <td className="hidden py-2.5 pr-5 pl-3 whitespace-nowrap sm:table-cell">
+                    <AdjustmentCell row={r} adj={adj} />
                   </td>
                 </tr>
               );
             })}
             {visible.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-5 py-10 text-center text-sm text-text-3">
+                <td colSpan={6} className="px-5 py-10 text-center text-sm text-text-3">
                   {rows.length === 0 ? `No budgets or ad spend for ${month.label}.` : "No clients match these filters."}
                 </td>
               </tr>
@@ -191,7 +235,7 @@ export function BudgetPacingTable({ rows: initialRows, month, months, editable }
 }
 
 /** Hover or keyboard-focus tooltip: short text, never shown permanently. */
-function Tip({ text, children, align = "start" }: { text: string; children: ReactNode; align?: "start" | "end" }) {
+function Tip({ text, children, align = "start" }: { text: ReactNode; children: ReactNode; align?: "start" | "end" }) {
   return (
     <span className="group/tip relative inline-flex">
       {children}
@@ -308,5 +352,36 @@ function BudgetCell({ row, month, canEdit, onSaved }: { row: SimpleRow; month: s
       </span>
       {error && <span id={errId} role="alert" className="text-xs text-critical-ink">{error}</span>}
     </form>
+  );
+}
+
+/** "Decrease 20%" with a small dot; details on hover, keyboard focus or click. */
+function AdjustmentCell({ row, adj }: { row: SimpleRow; adj: Adjustment }) {
+  if (adj.kind === "NONE") return <span className="text-text-3" title={adj.note ?? undefined}>—</span>;
+  const m = money(row);
+  const recent = row.spendToDateMinor !== null && row.spendMinor !== null ? row.spendToDateMinor - row.spendMinor : 0;
+  const ended = adj.kind.startsWith("ENDED");
+  const details = (
+    <span className="flex flex-col gap-0.5">
+      <strong className="font-semibold">{adj.label}</strong>
+      {!ended && <span>Current daily budget: {row.daily?.minor != null ? m(row.daily.minor) : "unavailable"}</span>}
+      {!ended && adj.recommendedDailyMinor !== null && <span>Recommended daily budget: {m(adj.recommendedDailyMinor)}</span>}
+      {adj.remainingMinor !== null && <span>Remaining monthly budget: {formatSignedMoney(adj.remainingMinor, m)}</span>}
+      {!ended && row.remainingDays !== null && <span>Days remaining: {row.remainingDays} (incl. today)</span>}
+      {adj.pct !== null && <span>Adjustment: {adj.pct > 0 ? "+" : ""}{adj.pct}%</span>}
+      {!ended && recent > 0 && <span className="opacity-80">Includes {m(recent)} spent since the last complete day.</span>}
+      {adj.note && <span className="opacity-80">{adj.note}</span>}
+      {row.warning && <span className="opacity-80">{row.warning}</span>}
+      {!ended && <span className="opacity-60">Guidance only; platforms can spend above the daily budget on some days.</span>}
+    </span>
+  );
+  return (
+    <Tip text={details} align="end">
+      <button type="button" className={cn("inline-flex cursor-default items-center gap-1.5 rounded-sm text-[13px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring", ADJ_TEXT[adj.tone])}>
+        <span aria-hidden className={cn("h-1.5 w-1.5 rounded-full", ADJ_DOT[adj.tone])} />
+        {adj.label}
+        <span className="sr-only">. {[adj.recommendedDailyMinor !== null ? `Recommended daily budget ${m(adj.recommendedDailyMinor)}` : "", row.daily?.minor != null ? `current ${m(row.daily.minor)}` : "", adj.note ?? ""].filter(Boolean).join(", ")}</span>
+      </button>
+    </Tip>
   );
 }

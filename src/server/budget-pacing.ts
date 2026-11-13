@@ -36,6 +36,8 @@ function toLine(r: PacingRow): LineInput {
     stale: r.stale,
     disconnected: r.disconnected,
     spendUnverified: r.accounts.some((a) => !a.spendIsVerified && !a.isDemo),
+    currentDaily: r.currentDaily,
+    latestSpendMinor: r.latestSpendMinor,
   };
 }
 
@@ -57,5 +59,12 @@ export async function loadBudgetPacingRows(where: Prisma.ClientWhereInput, month
     if (yesterday < month.start) return 0;
     return Math.min(totalDays, diffDays(month.start, yesterday) + 1) / totalDays;
   };
-  return buildSimpleRows(lines, fraction);
+  // Days left including today, in each client's own time zone (current month only).
+  const remaining = (clientId: string) => {
+    if (!month.isCurrent) return null;
+    const today = todayInTimeZone(tzById.get(clientId) ?? "UTC", now);
+    if (today < month.start || today > month.end) return null;
+    return diffDays(today, month.end) + 1;
+  };
+  return buildSimpleRows(lines, fraction, remaining);
 }

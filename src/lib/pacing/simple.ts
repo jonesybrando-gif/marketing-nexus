@@ -9,6 +9,7 @@
 // yesterday), so a partly reported today never makes an account look behind.
 
 import type { PlatformKey } from "../platforms";
+import { combineDailyBudgets, type CurrentDailyBudget } from "./daily-budget";
 
 /** Status thresholds. Change them here; nothing else needs to move. */
 export const SIMPLE_PACING_THRESHOLDS = {
@@ -50,6 +51,12 @@ export interface SimpleRow {
   /** How the budget can be changed inline, or null (with editNote saying where). */
   edit: { kind: "revise"; budgetId: string } | { kind: "create"; accountId: string } | null;
   editNote: string | null;
+  /** Platforms' current daily budget for the campaigns behind the budget; null when the row has no budget. */
+  daily: CurrentDailyBudget | null;
+  /** Month-to-date spend including today's spend so far (latest data); null = unknown. */
+  spendToDateMinor: number | null;
+  /** Days left in the month including today; null for past months. */
+  remainingDays: number | null;
 }
 
 export interface SimpleStatusInfo {
@@ -147,6 +154,8 @@ export interface LineInput {
   stale: boolean;
   disconnected: boolean;
   spendUnverified: boolean;
+  currentDaily?: CurrentDailyBudget | null;
+  latestSpendMinor?: number | null;
 }
 
 /**
@@ -159,7 +168,7 @@ export interface LineInput {
  *   listing its platforms.
  * `monthFraction` is the share of the month elapsed for rows with no budget line.
  */
-export function buildSimpleRows(lines: LineInput[], monthFraction: (clientId: string) => number | null): SimpleRow[] {
+export function buildSimpleRows(lines: LineInput[], monthFraction: (clientId: string) => number | null, remainingDays: (clientId: string) => number | null = () => null): SimpleRow[] {
   const groups = new Map<string, LineInput[]>();
   for (const l of lines) {
     const k = l.level === "CLIENT" || l.platforms.length !== 1 ? `${l.clientId}|${l.key}` : `${l.clientId}|${l.platforms[0]}|${l.currency}`;
@@ -211,8 +220,12 @@ export function buildSimpleRows(lines: LineInput[], monthFraction: (clientId: st
         : "Made up of more than one budget. Edit them in the client's budgets.";
     }
 
+    const latest = budgeted.filter((l) => !l.notConnected && l.latestSpendMinor != null);
     rows.push({
       key,
+      daily: budgeted.length ? combineDailyBudgets(budgeted.map((l) => l.currentDaily ?? { minor: null, note: "Current daily budget unavailable." })) : null,
+      spendToDateMinor: budgeted.length && latest.length === budgeted.filter((l) => !l.notConnected).length && latest.length ? latest.reduce((s, l) => s + l.latestSpendMinor!, 0) : null,
+      remainingDays: remainingDays(first.clientId),
       clientId: first.clientId,
       clientName: first.clientName,
       platforms: [...new Set(group.flatMap((l) => l.platforms))],

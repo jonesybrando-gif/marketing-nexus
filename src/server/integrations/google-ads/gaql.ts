@@ -74,7 +74,9 @@ SELECT
   campaign.id,
   campaign.name,
   campaign.status,
-  campaign_budget.amount_micros
+  campaign_budget.id,
+  campaign_budget.amount_micros,
+  campaign_budget.period
 FROM campaign
 WHERE campaign.status != 'REMOVED'
   AND ${channelFilter(scope)}`.trim();
@@ -219,7 +221,7 @@ export function parseCustomerClients(rows: CustomerClientRow[], queriedCustomerI
 
 export interface CampaignRow {
   campaign?: { id?: string; name?: string; status?: string };
-  campaignBudget?: { amountMicros?: string };
+  campaignBudget?: { id?: string; amountMicros?: string; period?: string };
 }
 
 const STATUSES = new Set(["ENABLED", "PAUSED", "REMOVED"]);
@@ -232,8 +234,22 @@ export function parseCampaigns(rows: CampaignRow[]): RemoteCampaign[] {
       externalId: r.campaign!.id!,
       name: r.campaign!.name ?? `Campaign ${r.campaign!.id}`,
       status: toStatus(r.campaign!.status),
-      dailyBudgetMinor: r.campaignBudget?.amountMicros ? microsToMinor(r.campaignBudget.amountMicros) : undefined,
+      ...googleBudget(r.campaignBudget),
     }));
+}
+
+/**
+ * Google budgets: DAILY (and the older FIXED_DAILY) are daily amounts, shared by
+ * every campaign with the same budget id. CUSTOM_PERIOD is a total for the
+ * campaign's dates (no fixed daily amount). Anything else is left unreported.
+ */
+function googleBudget(b: CampaignRow["campaignBudget"]): Pick<RemoteCampaign, "dailyBudgetMinor" | "budgetKind" | "budgetId"> {
+  if (!b) return {};
+  const budgetId = b.id ? `google:${b.id}` : undefined;
+  const period = b.period ?? "DAILY";
+  if (period === "CUSTOM_PERIOD") return { budgetKind: "LIFETIME", budgetId };
+  if ((period === "DAILY" || period === "FIXED_DAILY") && b.amountMicros) return { budgetKind: "DAILY", dailyBudgetMinor: microsToMinor(b.amountMicros), budgetId };
+  return {};
 }
 
 export interface PerformanceRow {

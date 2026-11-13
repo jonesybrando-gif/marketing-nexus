@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createHmac } from "node:crypto";
-import { classifyMetaError, createMetaAdsAdapter, parseInsights, pickAction } from "../adapter";
+import { classifyMetaError, createMetaAdsAdapter, metaCampaignBudget, parseInsights, pickAction } from "../adapter";
 import { decimalToMinor } from "../../common";
 
 const config = { appId: "123", appSecret: "shh", apiVersion: "v26.0", loginConfigId: null };
@@ -201,5 +201,25 @@ describe("Meta calls as conversions", () => {
       { campaign_id: "c", campaign_name: "Brand Call only", date_start: "2026-09-11", spend: "40.00", actions: [{ action_type: "click_to_call_call_confirm", value: "2" }, { action_type: "landing_page_view", value: "50" }] },
     ]);
     expect(rows.map((r) => [r.date, r.conversions, r.leads])).toEqual([["2026-09-10", 4, 1], ["2026-09-11", 2, 0]]);
+  });
+});
+
+describe("Meta campaign budgets", () => {
+  it("uses the campaign budget when there is one (CBO)", () => {
+    expect(metaCampaignBudget({ id: "1", daily_budget: "5000" }, null)).toEqual({ budgetKind: "DAILY", dailyBudgetMinor: 5000, budgetId: "meta:1" });
+    expect(metaCampaignBudget({ id: "1", lifetime_budget: "90000" }, null)).toMatchObject({ budgetKind: "LIFETIME" });
+  });
+  it("adds active ad set daily budgets otherwise (ABO)", () => {
+    const sets = [
+      { campaign_id: "1", effective_status: "ACTIVE", daily_budget: "2000" },
+      { campaign_id: "1", effective_status: "ACTIVE", daily_budget: "3000" },
+      { campaign_id: "1", effective_status: "PAUSED", daily_budget: "9000" },
+      { campaign_id: "2", effective_status: "ACTIVE", daily_budget: "1000" },
+    ];
+    expect(metaCampaignBudget({ id: "1" }, sets)).toEqual({ budgetKind: "DAILY", dailyBudgetMinor: 5000, budgetId: "meta:1" });
+  });
+  it("treats an active lifetime ad set as no fixed daily budget, and unread ad sets as unreported", () => {
+    expect(metaCampaignBudget({ id: "1" }, [{ campaign_id: "1", effective_status: "ACTIVE", lifetime_budget: "50000" }])).toMatchObject({ budgetKind: "LIFETIME" });
+    expect(metaCampaignBudget({ id: "1" }, null)).toEqual({});
   });
 });
