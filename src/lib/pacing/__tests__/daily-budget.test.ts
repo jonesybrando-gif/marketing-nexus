@@ -20,31 +20,44 @@ describe("currentDailyBudget", () => {
   });
 });
 
-const base: AdjustmentInput = { budgetMinor: 450000, spendToDateMinor: 234000, remainingDays: 18, currentDailyMinor: 15000, currentDailyNote: null };
+// $4,500 budget, $2,340 spent → $2,160 left over 18 days = $120/day needed.
+const base: AdjustmentInput = { budgetMinor: 450000, spendToDateMinor: 234000, remainingDays: 18, currentDailyMinor: 15000, currentDailyNote: null, recentDailySpendMinor: 15000 };
 
 describe("recommendAdjustment", () => {
-  it("matches the spec example: $2,160 left over 18 days at $150/day → Decrease 20%", () => {
-    const a = recommendAdjustment(base);
-    expect(a).toMatchObject({ kind: "DECREASE", tone: "amber", label: "Decrease 20%", pct: -20, remainingMinor: 216000, recommendedDailyMinor: 12000 });
+  it("spending $150/day when $120/day is needed → Decrease 20%, new daily budget $120", () => {
+    expect(recommendAdjustment(base)).toMatchObject({ kind: "DECREASE", tone: "amber", label: "Decrease 20%", pct: -20, remainingMinor: 216000, neededDailyMinor: 12000, recommendedDailyMinor: 12000 });
   });
-  it("recommends increases with the real percentage", () => {
-    expect(recommendAdjustment({ ...base, currentDailyMinor: 10000 })).toMatchObject({ kind: "INCREASE", label: "Increase 20%", pct: 20 });
-    expect(recommendAdjustment({ ...base, currentDailyMinor: 8000 }).label).toBe("Increase 50%");
+  it("follows actual spend, not the budget setting: an underspending account is never told to cut", () => {
+    // SCMC-like: $6,030/day of budgets but only ~$10/day spent, $9,880 left over 19 days.
+    const a = recommendAdjustment({ budgetMinor: 1000000, spendToDateMinor: 12000, remainingDays: 19, currentDailyMinor: 603000, currentDailyNote: null, recentDailySpendMinor: 1000 });
+    expect(a.kind).toBe("NEEDS_REVIEW");
+    expect(a.note).toMatch(/under its daily budget/);
   });
-  it("is No Change within ±10%", () => {
-    expect(recommendAdjustment({ ...base, currentDailyMinor: 12500 })).toMatchObject({ kind: "NO_CHANGE", tone: "green", label: "No Change" });
-    expect(recommendAdjustment({ ...base, currentDailyMinor: 11000 }).kind).toBe("NO_CHANGE"); // +9.1%
+  it("recommends an increase when spend is limited by the budget, scaling the current budget", () => {
+    // Spending its full $100/day budget, needs $120/day.
+    expect(recommendAdjustment({ ...base, currentDailyMinor: 10000, recentDailySpendMinor: 10000 })).toMatchObject({ kind: "INCREASE", label: "Increase 20%", pct: 20, recommendedDailyMinor: 12000 });
+    // Over-delivering above its $80 budget at $90/day, needs $120/day: still budget-limited.
+    expect(recommendAdjustment({ ...base, currentDailyMinor: 8000, recentDailySpendMinor: 9000 })).toMatchObject({ kind: "INCREASE", label: "Increase 33%" });
+  });
+  it("decreases scale the current budget even when the platform over-delivers", () => {
+    // Budget $100/day but spending $200/day (e.g. Google's 2× days); needs $120 → -40% → $60 budget.
+    expect(recommendAdjustment({ ...base, currentDailyMinor: 10000, recentDailySpendMinor: 20000 })).toMatchObject({ kind: "DECREASE", label: "Decrease 40%", recommendedDailyMinor: 6000 });
+  });
+  it("is No Change within ±10% of what is needed", () => {
+    expect(recommendAdjustment({ ...base, recentDailySpendMinor: 12500 })).toMatchObject({ kind: "NO_CHANGE", tone: "green", label: "No Change" });
+    expect(recommendAdjustment({ ...base, recentDailySpendMinor: 11000 }).kind).toBe("NO_CHANGE"); // +9.1%
   });
   it("says Pause / Review once the budget is used up and never recommends a negative budget", () => {
-    const a = recommendAdjustment({ ...base, spendToDateMinor: 460000 });
-    expect(a).toMatchObject({ kind: "PAUSE", tone: "red", label: "Pause / Review", recommendedDailyMinor: 0 });
+    expect(recommendAdjustment({ ...base, spendToDateMinor: 460000 })).toMatchObject({ kind: "PAUSE", tone: "red", label: "Pause / Review", recommendedDailyMinor: 0 });
     expect(recommendAdjustment({ ...base, spendToDateMinor: 450000 }).kind).toBe("PAUSE");
   });
-  it("says Needs Review when the current daily budget is unknown or zero, and still gives the recommended daily", () => {
+  it("says Needs Review when the daily budget or spend is unknown, nothing is running, or nothing is spending", () => {
     const a = recommendAdjustment({ ...base, currentDailyMinor: null, currentDailyNote: "Lifetime budget" });
-    expect(a).toMatchObject({ kind: "NEEDS_REVIEW", label: "Needs Review", recommendedDailyMinor: 12000, note: "Lifetime budget" });
+    expect(a).toMatchObject({ kind: "NEEDS_REVIEW", label: "Needs Review", neededDailyMinor: 12000, note: "Lifetime budget" });
     expect(recommendAdjustment({ ...base, currentDailyMinor: 0 }).kind).toBe("NEEDS_REVIEW");
     expect(recommendAdjustment({ ...base, spendToDateMinor: null }).kind).toBe("NEEDS_REVIEW");
+    expect(recommendAdjustment({ ...base, recentDailySpendMinor: 0 }).kind).toBe("NEEDS_REVIEW");
+    expect(recommendAdjustment({ ...base, recentDailySpendMinor: null }).kind).toBe("NEEDS_REVIEW");
   });
   it("shows nothing without a budget", () => {
     expect(recommendAdjustment({ ...base, budgetMinor: null }).kind).toBe("NONE");
@@ -55,14 +68,8 @@ describe("recommendAdjustment", () => {
     expect(recommendAdjustment({ ...base, remainingDays: null, spendToDateMinor: 440000 }).kind).toBe("ENDED_ON_TARGET");
   });
   it("orders Pause / Review, largest decreases, largest increases, then No Change", () => {
-    const list = [
-      recommendAdjustment({ ...base, currentDailyMinor: 12500 }), // no change
-      recommendAdjustment({ ...base, currentDailyMinor: 10000 }), // +20
-      recommendAdjustment({ ...base, currentDailyMinor: 30000 }), // -60
-      recommendAdjustment({ ...base, spendToDateMinor: 500000 }), // pause
-      recommendAdjustment({ ...base, currentDailyMinor: 8000 }), // +50
-      recommendAdjustment(base), // -20
-    ];
+    const b = (rate: number) => recommendAdjustment({ ...base, currentDailyMinor: rate, recentDailySpendMinor: rate });
+    const list = [b(12500), b(10000), b(30000), recommendAdjustment({ ...base, spendToDateMinor: 500000 }), b(8000), b(15000)];
     expect(list.sort(compareAdjustments).map((a) => a.label)).toEqual(["Pause / Review", "Decrease 60%", "Decrease 20%", "Increase 50%", "Increase 20%", "No Change"]);
   });
 });
