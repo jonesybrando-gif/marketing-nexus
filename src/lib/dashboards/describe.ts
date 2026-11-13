@@ -2,11 +2,12 @@ import type { DashboardWidget, WidgetKind } from "./types";
 import { dimensionLabel, metricInfo, sourceOf } from "./metrics";
 
 export const KIND_LABEL: Record<WidgetKind, string> = {
-  kpi: "KPI",
+  kpi: "Number",
   line: "Line chart",
+  area: "Area chart",
   bar: "Bar chart",
   table: "Table",
-  pie: "Pie chart",
+  pie: "Donut chart",
   rankings: "Keyword rankings",
   calllog: "Call log",
   formlog: "Form log",
@@ -23,6 +24,7 @@ export function widgetTitle(w: Pick<DashboardWidget, "kind" | "title" | "metrics
     case "kpi":
       return labels[0] ?? "KPI";
     case "line":
+    case "area":
     case "bar":
       if (w.dimension) return `${labels[0] ?? "Metric"} by ${dimensionLabel(sourceOf(w.metrics?.[0] ?? ""), w.dimension).toLowerCase()}`;
       return labels.join(", ") || KIND_LABEL[w.kind];

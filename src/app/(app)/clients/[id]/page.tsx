@@ -1,7 +1,7 @@
 import { Suspense, type ReactNode } from "react";
 import Link from "next/link";
 import type { Metadata } from "next";
-import { CalendarClock, ChevronRight, Sparkles, StickyNote, Download, Database, FileSliders, FileText, Link2, ListChecks, Mail, Plug, Search, Share2, Wallet } from "lucide-react";
+import { CalendarClock, ChevronRight, LayoutDashboard, Sparkles, StickyNote, Download, Database, FileSliders, FileText, Link2, ListChecks, Mail, Plug, Search, Share2, Wallet } from "lucide-react";
 import { AiSuggestionsCard } from "@/components/ai/suggestions-card";
 import { requireClientView, userCanEditClient, visibleClientsWhere } from "@/server/access";
 import { withRememberedRange } from "@/server/remembered-range";
@@ -18,7 +18,6 @@ import { DemoBadge } from "@/components/status-badge";
 import { CompactRangeControls, RangeControls } from "@/components/range-controls";
 import { ExportButtons, exportHref } from "@/components/export-buttons";
 import { Menu } from "@/components/ui/menu";
-import { ClientReportView } from "@/components/reports/client-report-view";
 import { ClientReportHeader } from "@/components/reports/client-report-header";
 import { ClientVisibilityToggle } from "@/components/reports/visibility-toggle";
 import { ActionButton } from "@/components/action-button";
@@ -28,11 +27,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { SectionSkeleton } from "@/components/ui/skeleton";
 import { ExecutiveSummary } from "@/components/reports/executive-summary";
 import { ClientDashboardsTab } from "@/components/dashboards/client-dashboards-tab";
+import { ClientReportTab } from "@/components/dashboards/client-report-tab";
+import { ClientBudgetTable } from "./client-budget-table";
 import { ClientFacingDashboards } from "@/components/dashboards/dashboard-section";
 import { ConnectedDataSection } from "@/components/dashboards/connected-data-section";
 import { listClientDashboards } from "@/server/dashboards/access";
-import { AdvertisingDetail, CampaignsSection, DataFreshness, hiddenMarker, HistorySection, NoAccountsState, NoteSection, PacingSection, PlatformSection, TrendsSection } from "@/components/reports/report-sections";
-import { BudgetCard, CampaignPerformance, DailyCard, ReportBand, ReportKpiTiles, SpendShare, SummaryRow } from "@/components/reports/report-dashboard";
+import { CampaignsSection, DataFreshness, hiddenMarker, HistorySection, NoAccountsState, PacingSection, PlatformSection, TrendsSection } from "@/components/reports/report-sections";
 import { ClientLogo } from "@/components/client-logo";
 import { SeoTab } from "@/components/seo/seo-tab";
 import { NextStepsSection } from "@/components/next-steps/next-steps-section";
@@ -41,20 +41,20 @@ import { AnalyticsTab } from "@/components/analytics/analytics-tab";
 
 export const dynamic = "force-dynamic";
 
-// Overview | Paid Ads · SEO · Analytics | Budgets · AI Insights · Reports | Settings
+// Report · Paid Media · SEO · Google Analytics · Budgets | Settings
 const TABS = [
-  { key: "overview", label: "Overview", group: 0 },
-  { key: "paid", label: "Paid Ads", group: 1 },
-  { key: "seo", label: "SEO", group: 1 },
-  { key: "analytics", label: "Analytics", group: 1 },
-  { key: "budgets", label: "Budgets", group: 2 },
-  { key: "insights", label: "AI Insights", group: 2 },
-  { key: "reports", label: "Reports", group: 2 },
+  { key: "report", label: "Report", group: 0 },
+  { key: "paid", label: "Paid Media", group: 0 },
+  { key: "seo", label: "SEO", group: 0 },
+  { key: "analytics", label: "Google Analytics", group: 0 },
+  { key: "budgets", label: "Budgets", group: 0 },
   { key: "settings", label: "Settings", group: 3 },
 ] as const;
-type Tab = (typeof TABS)[number]["key"];
-/** Tab names before the v3 navigation, so old links and bookmarks still land in the right place. */
-const LEGACY_TAB: Record<string, Tab> = { campaigns: "paid", trends: "paid", dashboards: "reports", setup: "settings" };
+/** Pages reached from Settings rather than the tab bar (the former AI Insights and Reports tabs). */
+const SUB_PAGES = ["insights", "dashboards"] as const;
+type Tab = (typeof TABS)[number]["key"] | (typeof SUB_PAGES)[number];
+/** Old tab names, so old links and bookmarks still land in the right place. */
+const LEGACY_TAB: Record<string, Tab> = { overview: "report", campaigns: "paid", trends: "paid", reports: "dashboards", setup: "settings" };
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params;
@@ -93,12 +93,12 @@ export default async function ClientPage({ params, searchParams }: { params: Pro
   };
   const { client, preset, compareMode, range, cmpRange, pacing } = rep;
   const isDemo = client.accounts.some((a) => a.isDemo);
-  const asked = sp.tab ? LEGACY_TAB[sp.tab] ?? sp.tab : "overview";
-  const tab: Tab = staff && TABS.some((t) => t.key === asked) ? (asked as Tab) : "overview";
+  const asked = sp.tab ? LEGACY_TAB[sp.tab] ?? sp.tab : "report";
+  const tab: Tab = staff && (TABS.some((t) => t.key === asked) || (SUB_PAGES as readonly string[]).includes(asked)) ? (asked as Tab) : "report";
   const base = `/clients/${id}`;
   const tabHref = (t: Tab) => {
-    const q = new URLSearchParams(Object.entries(sp).filter(([k, v]) => v && k !== "tab" && k !== "line") as [string, string][]);
-    if (t !== "overview") q.set("tab", t);
+    const q = new URLSearchParams(Object.entries(sp).filter(([k, v]) => v && k !== "tab" && k !== "line" && k !== "edit") as [string, string][]);
+    if (t !== "report") q.set("tab", t);
     const s = q.toString();
     return s ? `${base}?${s}` : base;
   };
@@ -106,7 +106,8 @@ export default async function ClientPage({ params, searchParams }: { params: Pro
   const exportBase = `/api/reports/clients/${id}`;
 
   // Sub-pages get the range and tab so their back links return to the same view.
-  const keep = (href: string) => withReportQuery(href, { ...sp, tab: sp.tab ?? "overview" });
+  const keep = (href: string) => withReportQuery(href, { ...sp, tab: sp.tab ?? "report" });
+  const editHref = `${tabHref("report")}${tabHref("report").includes("?") ? "&" : "?"}edit=1`;
 
   const header = (
     <div className="flex flex-wrap items-end justify-between gap-x-3 gap-y-2">
@@ -197,11 +198,13 @@ export default async function ClientPage({ params, searchParams }: { params: Pro
         {clientHeader}
         <Suspense fallback={<SectionSkeleton tiles={6} cards={2} />}>
           <WithReport report={loadFull()}>
-            {(rep) => {
-              // Client logins also see their client-visible custom dashboards after the KPI and summary sections.
-              const dashboards = <ClientFacingDashboards dashboards={listClientDashboards(user, id)} rep={rep} staff={false} basePath={base} query={sp} />;
-              return client.accounts.length === 0 ? <><NoAccountsState rep={rep} staff={false} />{dashboards}</> : <ClientReportView rep={rep} basePath={base} query={sp} afterSummary={dashboards} />;
-            }}
+            {(rep) => (
+              // The finished Report (no editing), then any other dashboards shared with the client.
+              <>
+                <ClientReportTab rep={rep} staff={false} canEdit={false} editing={false} basePath={base} query={sp} editHref={base} doneHref={base} />
+                <ClientFacingDashboards dashboards={listClientDashboards(user, id)} rep={rep} staff={false} basePath={base} query={sp} />
+              </>
+            )}
           </WithReport>
         </Suspense>
       </div>
@@ -233,49 +236,14 @@ export default async function ClientPage({ params, searchParams }: { params: Pro
       </div>
 
       <Suspense fallback={null}>
-        {/* Overview lists every open alert; the other tabs show critical ones only, so they're never missed. */}
-        <ClientAlertsStrip clientId={id} user={user} criticalOnly={tab !== "overview"} />
+        {/* Critical alerts only, so they're never missed; the full list is in AI Insights. */}
+        <ClientAlertsStrip clientId={id} user={user} criticalOnly />
       </Suspense>
 
-      {tab === "overview" && client.accounts.length === 0 && (
-        <Suspense fallback={<SectionSkeleton cards={2} tallFirst={false} />}>
+      {tab === "report" && (
+        <Suspense fallback={<SectionSkeleton tiles={6} cards={1} tallFirst={false} />}>
           <WithReport report={loadFull()}>
-            {(rep) => (
-              <>
-                <NoAccountsState rep={rep} staff />
-                <ConnectedDataSection rep={rep} canEdit={canEdit} query={sp} />
-                <PacingSection rep={rep} staff basePath={base} query={sp} marker={mark("pacing")} />
-              </>
-            )}
-          </WithReport>
-        </Suspense>
-      )}
-
-      {tab === "overview" && client.accounts.length > 0 && (
-        <Suspense fallback={<SectionSkeleton tiles={6} cards={2} tallFirst={false} />}>
-          <WithReport report={loadFull()}>
-            {(rep) => (
-              <>
-                {/* The same dashboard the client sees, plus the team's tools (summary approval, KPI editor, pacing detail). */}
-                <SummaryRow
-                  summary={<ExecutiveSummary rep={rep} marker={mark("executive")} copyable compact actions={<Link href={tabHref("insights")} className="text-sm font-medium text-brand-text hover:underline">Open AI Insights</Link>} />}
-                  budget={<BudgetCard rep={rep} />}
-                />
-                <ReportKpiTiles rep={rep} />
-                <NoteSection rep={rep} marker={mark("summary")} />
-                <ReportBand title="Spend and results" note="Day by day, and where the budget went" />
-                <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]">
-                  <DailyCard rep={rep} />
-                  <SpendShare rep={rep} />
-                </div>
-                <ReportBand title="Campaigns" note={rep.cmpRange ? "Change shown against the previous period" : undefined} />
-                <CampaignPerformance rep={rep} />
-                <ConnectedDataSection rep={rep} canEdit={canEdit} query={sp} />
-                <ReportBand title="Budget and report figures" note="Pacing detail and the figures shown in the client's report" />
-                <PacingSection rep={rep} staff basePath={base} query={sp} marker={mark("pacing")} />
-                <AdvertisingDetail rep={rep} marker={mark("kpis")} editable={canEdit} />
-              </>
-            )}
+            {(rep) => <ClientReportTab rep={rep} staff canEdit={canEdit} editing={sp.edit === "1"} basePath={base} query={sp} editHref={editHref} doneHref={tabHref("report")} />}
           </WithReport>
         </Suspense>
       )}
@@ -319,6 +287,9 @@ export default async function ClientPage({ params, searchParams }: { params: Pro
 
       {tab === "budgets" && (
         <>
+          <Suspense fallback={<SectionSkeleton cards={1} tallFirst={false} />}>
+            <ClientBudgetTable clientId={id} user={user} canEdit={canEdit} />
+          </Suspense>
           <Suspense fallback={<SectionSkeleton cards={1} />}>
             <WithReport report={loadFull()}>{(rep) => <PacingSection rep={rep} staff basePath={base} query={sp} marker={mark("pacing")} />}</WithReport>
           </Suspense>
@@ -329,7 +300,7 @@ export default async function ClientPage({ params, searchParams }: { params: Pro
         </>
       )}
 
-      {tab === "reports" && (
+      {tab === "dashboards" && (
         <>
           <Suspense fallback={<SectionSkeleton cards={1} tallFirst={false} />}>
             <WithReport report={loadFull()}>{(rep) => <NextStepsSection rep={rep} canEdit={canEdit} />}</WithReport>
@@ -383,7 +354,14 @@ export default async function ClientPage({ params, searchParams }: { params: Pro
       {tab === "settings" && (
         <>
           <Suspense fallback={<SectionSkeleton cards={1} tallFirst={false} />}>
-            <WithReport report={loadFull()}>{(rep) => <PlatformSection rep={rep} staff status title="Ad accounts and data" />}</WithReport>
+            <WithReport report={loadFull()}>
+              {(rep) => (
+                <>
+                  <PlatformSection rep={rep} staff status title="Ad accounts and data" />
+                  <ConnectedDataSection rep={rep} canEdit={canEdit} query={sp} />
+                </>
+              )}
+            </WithReport>
           </Suspense>
           {/* The one place to configure this client. Sending and downloading live in the Share button. */}
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -394,6 +372,8 @@ export default async function ClientPage({ params, searchParams }: { params: Pro
               { href: keep(`${base}/budgets`), Icon: Wallet, title: "Budgets", body: "Monthly budgets, how they're split and when pacing warns you." },
               { href: keep(`${base}/report`), Icon: FileSliders, title: "Report layout, logo & goal", body: "The client's logo and goal, the figures and sections they see, and the default date range." },
               { href: keep(`${base}/rankings`), Icon: Search, title: "Keyword rankings", body: "Daily Google positions for the client's keywords." },
+              { href: tabHref("insights"), Icon: Sparkles, title: "AI insights", body: "The executive summary, suggestions and opportunities for this client." },
+              { href: tabHref("dashboards"), Icon: LayoutDashboard, title: "Next steps & extra dashboards", body: "Agreed next steps, and any custom dashboards beyond the Report." },
             ].map(({ href, Icon, title, body }) => (
               <Link key={title} href={href} className="flex min-h-10 flex-col gap-1 rounded-xl border border-border bg-surface px-5 py-4 hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/60">
                 <span className="flex items-center gap-2 text-sm font-semibold"><Icon className="h-4 w-4 text-text-2" aria-hidden /> {title}</span>

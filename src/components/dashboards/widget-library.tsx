@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { BarChart3, Hash, LineChart, ListOrdered, Phone, PieChart, Plug, Table2, Type, Wallet, X } from "lucide-react";
+import { AreaChart, BarChart3, Hash, LineChart, ListOrdered, Phone, PieChart, Plug, Table2, Type, Wallet, X } from "lucide-react";
 import type { MetricSource } from "@/lib/metrics-registry";
 import { dimensionsFor, metricsFor, SOURCE_LABEL, SOURCE_ORDER } from "@/lib/dashboards/metrics";
 import { KIND_LABEL } from "@/lib/dashboards/describe";
@@ -22,9 +22,9 @@ export interface WidgetDraft {
   title?: string;
 }
 
-const KIND_ICON: Record<WidgetKind, typeof Hash> = { kpi: Hash, line: LineChart, bar: BarChart3, table: Table2, pie: PieChart, rankings: ListOrdered, calllog: Phone, formlog: Table2, text: Type, pacing: Wallet, campaigns: Table2 };
+const KIND_ICON: Record<WidgetKind, typeof Hash> = { kpi: Hash, line: LineChart, area: AreaChart, bar: BarChart3, table: Table2, pie: PieChart, rankings: ListOrdered, calllog: Phone, formlog: Table2, text: Type, pacing: Wallet, campaigns: Table2 };
 
-const METRIC_KINDS: WidgetKind[] = ["kpi", "line", "bar", "table", "pie"];
+const METRIC_KINDS: WidgetKind[] = ["kpi", "line", "area", "bar", "table", "pie"];
 
 /** Widget kinds a source offers in the library. */
 export function kindsFor(tab: LibraryTab): WidgetKind[] {

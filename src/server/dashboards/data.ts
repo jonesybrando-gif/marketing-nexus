@@ -79,7 +79,7 @@ interface Period {
 
 const BREAKDOWN_LIMIT = 25;
 const isBreakdown = (w: DashboardWidget) => w.kind === "table" || w.kind === "pie" || (w.kind === "bar" && !!w.dimension);
-const isSeries = (w: DashboardWidget) => w.kind === "line" || (w.kind === "bar" && !w.dimension);
+const isSeries = (w: DashboardWidget) => w.kind === "line" || w.kind === "area" || (w.kind === "bar" && !w.dimension);
 
 function emptyFor(source: MetricSource | null, linked: MetricSource[], fallback = "No data for this period yet."): WidgetData {
   if (source && !linked.includes(source)) {
@@ -248,6 +248,7 @@ async function buildWidget(w: DashboardWidget, p: Period, ctx: ResolveContext, l
       if (w.dimension) return l.breakdown!;
       return buildSeries(w, p, ctx, l);
     case "line":
+    case "area":
       return buildSeries(w, p, ctx, l);
     case "kpi":
       return buildKpi(w, p, ctx, l);
