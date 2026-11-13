@@ -43,6 +43,14 @@ describe("recommendAdjustment", () => {
     // Budget $100/day but spending $200/day (e.g. Google's 2× days); needs $120 → -40% → $60 budget.
     expect(recommendAdjustment({ ...base, currentDailyMinor: 10000, recentDailySpendMinor: 20000 })).toMatchObject({ kind: "DECREASE", label: "Decrease 40%", recommendedDailyMinor: 6000 });
   });
+  it("for Local Services (billed per lead) recommends the amount needed per day, not a scaled budget", () => {
+    // $66/day budget but $227/day spent; $410 left over 19 days → $22/day.
+    const a = recommendAdjustment({ budgetMinor: 200000, spendToDateMinor: 159000, remainingDays: 19, currentDailyMinor: 6600, currentDailyNote: null, recentDailySpendMinor: 22700, budgetTracksSpend: false });
+    expect(a).toMatchObject({ kind: "DECREASE", neededDailyMinor: 2158, recommendedDailyMinor: 2158 });
+    expect(a.note).toMatch(/per lead/);
+    // An LSA account spending under its budget still gets an increase (no "not budget-limited" check).
+    expect(recommendAdjustment({ ...base, currentDailyMinor: 20000, recentDailySpendMinor: 9000, budgetTracksSpend: false }).kind).toBe("INCREASE");
+  });
   it("is No Change within ±10% of what is needed", () => {
     expect(recommendAdjustment({ ...base, recentDailySpendMinor: 12500 })).toMatchObject({ kind: "NO_CHANGE", tone: "green", label: "No Change" });
     expect(recommendAdjustment({ ...base, recentDailySpendMinor: 11000 }).kind).toBe("NO_CHANGE"); // +9.1%

@@ -33,6 +33,7 @@ const adjustment = (r: SimpleRow) =>
     currentDailyMinor: r.daily?.minor ?? null,
     currentDailyNote: r.daily?.note ?? null,
     recentDailySpendMinor: r.recentDailySpendMinor,
+    budgetTracksSpend: !(r.platforms.length > 0 && r.platforms.every((p) => p === "GOOGLE_LSA")),
   });
 const ADJ_TEXT: Record<Adjustment["tone"], string> = { red: "text-critical-ink", amber: "text-warning-ink", green: "text-good-ink", gray: "text-text-3" };
 const ADJ_DOT: Record<Adjustment["tone"], string> = { red: "bg-critical", amber: "bg-dot-watch", green: "bg-good", gray: "bg-transparent ring-1 ring-inset ring-text-3/60" };
