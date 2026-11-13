@@ -41,7 +41,10 @@ export interface ExecutiveSummaryContent {
 }
 
 export const MAX_STEPS = 3;
-export const SUMMARY_TITLES = { happened: "What happened?", meaning: "What does this mean?", next: "What should we do next?" } as const;
+export const SUMMARY_TITLES = { notes: "Updates from our team", happened: "What happened?", meaning: "What does this mean?", next: "What should we do next?" } as const;
+
+/** A summary with the agency's own notes (shown under the takeaway). */
+export type SummaryWithNotes = ExecutiveSummaryContent & { notes?: string };
 
 /** First sentence of a paragraph, and the rest. */
 export function splitFirstSentence(text: string): [string, string] {
@@ -191,8 +194,9 @@ export function summaryOutline(s: ExecutiveSummaryContent, clientFacing: boolean
 }
 
 /** Plain text for pasting into any email client: the takeaway as the opening line, then the three sections. */
-export function summaryAsText(s: ExecutiveSummaryContent, heading: string, opts: { clientFacing?: boolean } = {}): string {
+export function summaryAsText(s: SummaryWithNotes, heading: string, opts: { clientFacing?: boolean } = {}): string {
   const out = [heading, "", s.takeaway.trim(), ""];
+  if (s.notes?.trim()) out.push(SUMMARY_TITLES.notes, s.notes.trim(), "");
   for (const sec of summaryOutline(s, !!opts.clientFacing)) {
     out.push(sec.title);
     if (sec.text) out.push(sec.text);
@@ -204,12 +208,13 @@ export function summaryAsText(s: ExecutiveSummaryContent, heading: string, opts:
 const esc = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
 /** Simple inline-styled HTML that keeps its formatting when pasted into Gmail or Outlook. */
-export function summaryAsHtml(s: ExecutiveSummaryContent, heading: string, opts: { clientFacing?: boolean } = {}): string {
+export function summaryAsHtml(s: SummaryWithNotes, heading: string, opts: { clientFacing?: boolean } = {}): string {
   const p = "margin:0 0 12px;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;color:#1f2328;";
   const h = "margin:16px 0 6px;font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:bold;color:#1f2328;";
   const li = "margin:0 0 6px;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;color:#1f2328;";
   const parts = [`<p style="${h}margin-top:0;font-size:16px;">${esc(heading)}</p>`];
   if (s.takeaway.trim()) parts.push(`<p style="${p}">${esc(s.takeaway.trim())}</p>`);
+  if (s.notes?.trim()) parts.push(`<p style="${h}">${SUMMARY_TITLES.notes}</p>`, ...s.notes.trim().split(/\n{2,}/).map((x) => `<p style="${p}">${esc(x.trim()).replace(/\n/g, "<br>")}</p>`));
   for (const sec of summaryOutline(s, !!opts.clientFacing)) {
     parts.push(`<p style="${h}">${esc(sec.title)}</p>`);
     if (sec.text) parts.push(`<p style="${p}">${esc(sec.text)}</p>`);

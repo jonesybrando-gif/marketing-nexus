@@ -254,6 +254,15 @@ export async function renderClientReportPdf(
       paragraph(doc, es.takeaway, { size: 10.5, color: C.text });
       doc.moveDown(0.5);
     }
+    if (es.notes?.trim()) {
+      ensureSpace(doc, 40);
+      doc.font("Helvetica-Bold").fontSize(10).fillColor(C.text).text(pdfText("Updates from our team"), doc.page.margins.left, doc.y);
+      doc.moveDown(0.2);
+      for (const para of es.notes.trim().split(/\n{2,}/)) {
+        paragraph(doc, para, { size: 9.5, color: C.text });
+        doc.moveDown(0.25);
+      }
+    }
     const list = (title: string, items: string[], numbered = false) => {
       if (!items.length) return;
       doc.moveDown(0.3);
@@ -278,7 +287,7 @@ export async function renderClientReportPdf(
       } else list(sec.title, sec.items, sec.numbered);
     }
     doc.moveDown(0.3);
-    paragraph(doc, `${es.source === "ai" ? "Written by AI" : "Worked out automatically"} from the figures in this report.${opts.internal ? " Recommendations are suggestions; nothing has been changed in the ad accounts." : ""}`, { size: 7.5 });
+    paragraph(doc, `${es.source === "ai" ? (es.edited ? "Written by AI and reviewed by your team" : "Written by AI") : es.source === "edited" ? "Written by your team" : "Worked out automatically"} from the figures in this report.${opts.internal ? " Recommendations are suggestions; nothing has been changed in the ad accounts." : ""}`, { size: 7.5 });
     doc.moveDown(1);
   }
 
