@@ -13,6 +13,7 @@ export const PLAIN: Record<string, string> = {
   "callrail.missRate": "Out of every 100 calls, how many were missed.",
   "callrail.firstTimeCallers": "Calls from people calling you for the first time.",
   "callrail.newCallerRate": "Out of every 100 calls, how many came from first-time callers.",
+  "callrail.repeatCallers": "Calls from people who had called before.",
   "callrail.leads": "Calls your team marked as a good lead in CallRail.",
   "callrail.callsPerLead": "How many calls it took to get one good lead.",
   "callrail.durationSeconds": "Total time spent talking on answered calls.",
@@ -36,6 +37,8 @@ export const PLAIN: Record<string, string> = {
   // Website (Google Analytics)
   "ga4.sessions": "Visits to your website.",
   "ga4.totalUsers": "People who visited your website (counted once per day).",
+  "ga4.avgEngagementTime": "How long, on average, each visitor actively used your website.",
+  "ga4.keyEventRate": "Website goals for every 100 visits.",
   "ga4.newUsers": "People visiting your website for the first time.",
   "ga4.engagedSessions": "Visits where someone stayed 10 seconds or more, looked at 2+ pages, or completed a goal.",
   "ga4.engagementRate": "Out of every 100 website visits, how many were engaged.",

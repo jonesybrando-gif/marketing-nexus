@@ -9,6 +9,9 @@ import { rangeLabel } from "@/lib/date-ranges";
 import { formatDate } from "@/lib/time";
 import { stillCounting } from "@/lib/results";
 import { webContextFor } from "./web-context";
+import { loadClientReportLayout } from "@/server/dashboards/report";
+import { reportSources } from "@/lib/dashboards/report-sections";
+import type { MetricSource } from "@/lib/metrics-registry";
 
 /** The grounding text for one client's report, as the page and PDF show it. */
 export function contextForReport(rep: ClientReport): string {
@@ -20,8 +23,13 @@ export function contextForReport(rep: ClientReport): string {
  * organic search and keyword-rank data for the same period, when connected.
  */
 export async function aiContextForReport(rep: ClientReport): Promise<string> {
-  const callrail = await linkedSources(rep.client.id).then((l) => l.includes("callrail")).catch(() => false);
-  const web = await webContextFor(rep.client.id, rep.client.currency, rep.range, rep.cmpRange, { callrail, callsFromAds: rep.callsFromAds ?? null }).catch(() => null);
+  // Only the sources the client's Report includes: removing a section (CallRail, SEO…) takes it out of the summary too.
+  const linked = await linkedSources(rep.client.id).catch(() => [] as MetricSource[]);
+  const inReport = await loadClientReportLayout(rep.client.id, linked)
+    .then((l) => reportSources(l.layout))
+    .catch(() => new Set<MetricSource>(linked));
+  const include = new Set(linked.filter((s) => inReport.has(s)));
+  const web = await webContextFor(rep.client.id, rep.client.currency, rep.range, rep.cmpRange, { callrail: !linked.includes("callrail") ? false : include.has("callrail") ? true : undefined, callsFromAds: rep.callsFromAds ?? null, include }).catch(() => null);
   return buildAiContext({ ...contextInput(rep), web });
 }
 

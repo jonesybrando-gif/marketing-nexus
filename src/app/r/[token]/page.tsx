@@ -11,8 +11,8 @@ import { rangeLabel } from "@/lib/date-ranges";
 import { formatDate } from "@/lib/time";
 import { buttonVariants } from "@/components/ui/button";
 import { ClientReportHeader } from "@/components/reports/client-report-header";
-import { ClientReportView } from "@/components/reports/client-report-view";
-import { DataFreshness, NoAccountsState } from "@/components/reports/report-sections";
+import { ClientReportTab } from "@/components/dashboards/client-report-tab";
+import { DataFreshness } from "@/components/reports/report-sections";
 import { ClientFacingDashboards } from "@/components/dashboards/dashboard-section";
 import { sharedReportDashboards } from "@/server/dashboards/access";
 
@@ -87,11 +87,9 @@ export default async function SharedReportPage({ params, searchParams }: { param
         />
         {agency.reportHeader && <p className="-mt-2 text-sm text-text-2">{agency.reportHeader}</p>}
         {/* Only the link client's client-visible dashboards, after the KPI and summary sections. */}
-        {client.accounts.length === 0 ? (
-          <><NoAccountsState rep={rep} staff={false} /><ClientFacingDashboards dashboards={sharedReportDashboards(link.clientId)} rep={rep} staff={false} basePath={`/r/${token}`} query={{ line: sp.line }} /></>
-        ) : (
-          <ClientReportView rep={rep} basePath={`/r/${token}`} query={{ line: sp.line }} afterSummary={<ClientFacingDashboards dashboards={sharedReportDashboards(link.clientId)} rep={rep} staff={false} basePath={`/r/${token}`} query={{ line: sp.line }} />} />
-        )}
+        {/* The same saved Report the agency edits and client logins see: the summary, then its sections. */}
+        <ClientReportTab rep={rep} staff={false} canEdit={false} editing={false} basePath={`/r/${token}`} query={{ line: sp.line }} editHref={`/r/${token}`} doneHref={`/r/${token}`} showAccountFilter={false} />
+        <ClientFacingDashboards dashboards={sharedReportDashboards(link.clientId)} rep={rep} staff={false} basePath={`/r/${token}`} query={{ line: sp.line }} />
         <footer className="border-t border-border pt-4 text-xs text-text-3">
           {agency.reportFooter && <p className="mb-1">{agency.reportFooter}</p>}
           <p>Figures are as reported by each ad platform; today&apos;s partial data is excluded.</p>

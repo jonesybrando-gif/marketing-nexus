@@ -2,30 +2,30 @@ import "server-only";
 import type { Dashboard } from "@prisma/client";
 import { prisma } from "../db";
 import type { MetricSource } from "@/lib/metrics-registry";
-import type { DashboardWidget } from "@/lib/dashboards/types";
-import { readWidgets } from "@/lib/dashboards/parse";
-import { buildReportWidgets, reportTemplate } from "@/lib/dashboards/report-templates";
+import { defaultReportLayout, newlyAvailableSections, readReportLayout, type ReportLayout, type SectionType } from "@/lib/dashboards/report-sections";
 
 export const REPORT_ROLE = "REPORT";
 
 export interface ClientReportLayout {
-  /** The client's saved Report, or null while it still follows its template. */
+  /** The client's saved Report, or null while it still follows the defaults. */
   saved: Dashboard | null;
-  /** What the Report shows: the saved widgets, or the template's. */
-  widgets: DashboardWidget[];
-  /** The template's widgets for this client's sources (Reset to default). */
-  defaults: DashboardWidget[];
-  templateKey: string;
+  /** What the Report shows: the saved sections, or the default sections for the connected integrations. */
+  layout: ReportLayout;
+  /** Default sections for this client's integrations (Reset to Default). */
+  defaults: ReportLayout;
+  /** Integrations connected since the report was customized, to offer (never added without asking). */
+  newlyAvailable: SectionType[];
 }
 
 /**
- * A client's Report tab layout. Each client has at most one saved Report
- * (Dashboard role "REPORT"); until it is edited the client follows the
- * default report template, built from the sources it has connected.
+ * A client's Report layout. Each client has at most one saved Report
+ * (Dashboard role "REPORT"); until someone customizes it the client follows
+ * the default sections, rebuilt from its connected integrations on every
+ * load, so a newly connected integration appears automatically.
  */
 export async function loadClientReportLayout(clientId: string, linked: MetricSource[]): Promise<ClientReportLayout> {
   const saved = await prisma.dashboard.findFirst({ where: { clientId, role: REPORT_ROLE, isTemplate: false } });
-  const template = reportTemplate(saved?.templateKey);
-  const defaults = buildReportWidgets(template, linked);
-  return { saved, widgets: saved ? readWidgets(saved.widgets) : defaults, defaults, templateKey: template.key };
+  const defaults = defaultReportLayout(linked);
+  const layout = saved ? readReportLayout(saved.widgets, saved.layoutVersion) : defaults;
+  return { saved, layout, defaults, newlyAvailable: saved ? newlyAvailableSections(layout, linked) : [] };
 }
