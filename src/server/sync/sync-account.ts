@@ -64,13 +64,23 @@ export function syncRange(adapter: PlatformAdapter, today: IsoDate, kind: SyncKi
   return { from: addDays(minDate(dataCompleteThrough, today), -days), to: today };
 }
 
+/** Always overwritten, so a campaign moved to a lifetime budget never keeps an old daily amount. */
+function budgetFields(c: RemoteCampaign) {
+  const daily = c.budgetKind === "DAILY" && c.dailyBudgetMinor !== undefined;
+  return {
+    platformBudgetKind: c.budgetKind ?? null,
+    platformBudgetId: c.budgetId ?? null,
+    platformDailyBudgetMinor: daily ? BigInt(c.dailyBudgetMinor!) : null,
+  };
+}
+
 async function upsertCampaigns(accountId: string, campaigns: RemoteCampaign[], includeNew = true): Promise<Map<string, string>> {
   const ids = new Map<string, string>();
   for (const c of campaigns) {
     const row = await prisma.campaign.upsert({
       where: { accountId_externalId: { accountId, externalId: c.externalId } },
-      create: { accountId, externalId: c.externalId, name: c.name, status: c.status, excludedAt: includeNew ? null : new Date(), platformDailyBudgetMinor: c.dailyBudgetMinor === undefined ? null : BigInt(c.dailyBudgetMinor) },
-      update: { name: c.name, status: c.status, ...(c.dailyBudgetMinor === undefined ? {} : { platformDailyBudgetMinor: BigInt(c.dailyBudgetMinor) }) },
+      create: { accountId, externalId: c.externalId, name: c.name, status: c.status, excludedAt: includeNew ? null : new Date(), ...budgetFields(c) },
+      update: { name: c.name, status: c.status, ...budgetFields(c) },
       select: { id: true },
     });
     ids.set(c.externalId, row.id);

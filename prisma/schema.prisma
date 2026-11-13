@@ -327,8 +327,13 @@ model Campaign {
   externalId  String
   name        String
   status      CampaignStatus @default(UNKNOWN)
-  // Platform-side daily budget, informational only (minor units).
+  // Platform-side daily budget, informational only (minor units). Set only
+  // when platformBudgetKind is DAILY.
   platformDailyBudgetMinor BigInt?
+  /// The platform budget behind this campaign (Google shared budgets feed several campaigns; count each once).
+  platformBudgetId   String?
+  /// "DAILY" | "LIFETIME" (total/lifetime budget, no fixed daily amount) | null = not reported by the platform.
+  platformBudgetKind String?
   // Set when the campaign is left out of the client's reports, pacing and
   // alerts. Its data is still synced and kept, so it can be added back.
   excludedAt  DateTime?

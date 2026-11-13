@@ -16,10 +16,12 @@ export const monthLabel = (key: string) => formatDate(`${key}-01`, { month: "lon
  */
 export async function BudgetsView({ user, month, currentKey }: { user: SessionUser; month: { key: string; start: string; end: string; isCurrent: boolean }; currentKey: string }) {
   const visible = visibleClientsWhere(user);
-  const [rows, clients] = await Promise.all([
+  const [rows, clients, labels] = await Promise.all([
     loadBudgetPacingRows(visible, month),
-    prisma.client.findMany({ where: visible, select: { id: true, agencyId: true, primaryManagerId: true, assignments: { select: { userId: true } } } }),
+    prisma.client.findMany({ where: visible, select: { id: true, agencyId: true, primaryManagerId: true, assignments: { select: { userId: true } }, labels: { select: { id: true } } } }),
+    prisma.clientLabel.findMany({ where: { agencyId: user.agencyId }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
   ]);
+  const labelsByClient = Object.fromEntries(clients.map((c) => [c.id, c.labels.map((l) => l.id)]));
   const editable = Object.fromEntries(
     clients.map((c) => [c.id, canEditClient(user, { id: c.id, agencyId: c.agencyId, primaryManagerId: c.primaryManagerId, assignedUserIds: c.assignments.map((a) => a.userId) })]),
   );
@@ -32,5 +34,5 @@ export async function BudgetsView({ user, month, currentKey }: { user: SessionUs
   }
   if (!months.some((m) => m.key === month.key) && month.key < currentKey) months.push({ key: month.key, label: monthLabel(month.key) });
 
-  return <BudgetPacingTable rows={rows} month={{ key: month.key, label: monthLabel(month.key) }} months={months} editable={editable} />;
+  return <BudgetPacingTable rows={rows} month={{ key: month.key, label: monthLabel(month.key) }} months={months} editable={editable} labels={labels} labelsByClient={labelsByClient} />;
 }

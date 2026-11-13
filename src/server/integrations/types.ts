@@ -111,7 +111,16 @@ export interface RemoteCampaign {
   externalId: string;
   name: string;
   status: "ENABLED" | "PAUSED" | "REMOVED" | "UNKNOWN";
+  /** Daily budget in minor units; only when budgetKind is "DAILY". */
   dailyBudgetMinor?: number;
+  /**
+   * How the campaign is budgeted, when the adapter reports it: "DAILY" (a daily
+   * amount, possibly shared — see budgetId) or "LIFETIME" (a total for a date
+   * range, no fixed daily amount). Undefined = the adapter doesn't report budgets.
+   */
+  budgetKind?: "DAILY" | "LIFETIME";
+  /** Identifies the budget; campaigns sharing one budget have the same id, so it is counted once. */
+  budgetId?: string;
 }
 
 export interface RemoteDailyRow {

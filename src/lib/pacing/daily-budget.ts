@@ -1,0 +1,127 @@
+// Current daily budget behind a budget line, and the daily budget adjustment
+// needed to finish the month on budget (Budget Pacing "Adjustment Needed").
+// Pure functions: advisory only, nothing here changes a platform budget.
+
+/** Within ±this percent of the current daily budget is "No change". Change it here. */
+export const ADJUSTMENT_THRESHOLD_PCT = 10;
+
+export interface CampaignBudgetInfo {
+  status: string;
+  platformDailyBudgetMinor: bigint | number | null;
+  platformBudgetId?: string | null;
+  platformBudgetKind?: string | null;
+}
+
+export interface CurrentDailyBudget {
+  /** Sum of the active campaigns' daily budgets (shared budgets once); null = not known. */
+  minor: number | null;
+  /** Why it is null or zero, for the tooltip. */
+  note: string | null;
+}
+
+/**
+ * The platform's current daily budget for a set of campaigns: enabled campaigns
+ * only, each shared budget counted once. Unknown (null) when any enabled
+ * campaign's budget isn't reported or is a lifetime/total budget — never
+ * estimated from the monthly budget.
+ */
+export function currentDailyBudget(campaigns: CampaignBudgetInfo[]): CurrentDailyBudget {
+  const enabled = campaigns.filter((c) => c.status === "ENABLED");
+  if (enabled.length === 0) return { minor: 0, note: "No active campaigns." };
+  if (enabled.some((c) => c.platformBudgetKind === "LIFETIME")) return { minor: null, note: "A campaign uses a lifetime or total budget, so there is no fixed daily budget." };
+  if (enabled.some((c) => c.platformBudgetKind !== "DAILY" || c.platformDailyBudgetMinor === null)) return { minor: null, note: "The platform hasn't reported a daily budget for every active campaign." };
+  const seen = new Set<string>();
+  let total = 0;
+  for (const c of enabled) {
+    if (c.platformBudgetId) {
+      if (seen.has(c.platformBudgetId)) continue;
+      seen.add(c.platformBudgetId);
+    }
+    total += Number(c.platformDailyBudgetMinor);
+  }
+  return { minor: total, note: null };
+}
+
+/** Adds the daily budgets of several lines; unknown if any is unknown. */
+export function combineDailyBudgets(parts: CurrentDailyBudget[]): CurrentDailyBudget {
+  if (parts.length === 0) return { minor: null, note: "No campaigns linked." };
+  const unknown = parts.find((p) => p.minor === null);
+  if (unknown) return unknown;
+  const minor = parts.reduce((s, p) => s + p.minor!, 0);
+  return { minor, note: minor === 0 ? "No active campaigns." : null };
+}
+
+export type AdjustmentKind = "PAUSE" | "DECREASE" | "INCREASE" | "NO_CHANGE" | "NEEDS_REVIEW" | "NONE" | "ENDED_OVER" | "ENDED_UNDER" | "ENDED_ON_TARGET";
+
+export interface AdjustmentInput {
+  budgetMinor: number | null;
+  /** Month-to-date spend including what is already spent today. null = unknown. */
+  spendToDateMinor: number | null;
+  /** Days left in the month including today; null for past months. */
+  remainingDays: number | null;
+  currentDailyMinor: number | null;
+  currentDailyNote: string | null;
+}
+
+export interface Adjustment {
+  kind: AdjustmentKind;
+  tone: "red" | "amber" | "green" | "gray";
+  /** Short label for the cell: "Increase 15%", "Decrease 20%", "No Change"… */
+  label: string;
+  /** Rounded percentage change (signed), when computed. */
+  pct: number | null;
+  remainingMinor: number | null;
+  recommendedDailyMinor: number | null;
+  /** Extra explanation for the tooltip. */
+  note: string | null;
+}
+
+/**
+ * Remaining budget = monthly budget − spend so far (including today);
+ * recommended daily = remaining ÷ days left including today (never negative);
+ * adjustment = (recommended − current daily) ÷ current daily × 100.
+ */
+export function recommendAdjustment(i: AdjustmentInput, thresholdPct = ADJUSTMENT_THRESHOLD_PCT): Adjustment {
+  const out = (kind: AdjustmentKind, label: string, extra: Partial<Adjustment> = {}): Adjustment => ({
+    kind,
+    tone: kind === "PAUSE" || kind === "ENDED_OVER" ? "red" : kind === "INCREASE" || kind === "DECREASE" || kind === "ENDED_UNDER" ? "amber" : kind === "NO_CHANGE" || kind === "ENDED_ON_TARGET" ? "green" : "gray",
+    label,
+    pct: null,
+    remainingMinor: null,
+    recommendedDailyMinor: null,
+    note: null,
+    ...extra,
+  });
+  if (i.budgetMinor === null) return out("NONE", "—", { note: "No monthly budget set." });
+  if (i.remainingDays === null || i.remainingDays <= 0) {
+    // Past month: how it finished, not a recommendation for today.
+    if (i.spendToDateMinor === null) return out("NONE", "—", { note: "No spend data for this month." });
+    const remainingMinor = i.budgetMinor - i.spendToDateMinor;
+    const note = "Past month: how the month finished. Daily budget recommendations are for the current month only.";
+    if (remainingMinor < 0) return out("ENDED_OVER", "Ended over budget", { remainingMinor, note });
+    const pct = i.budgetMinor > 0 ? Math.round((i.spendToDateMinor / i.budgetMinor - 1) * 100) : 0;
+    if (pct < -thresholdPct) return out("ENDED_UNDER", `Ended ${Math.abs(pct)}% under`, { remainingMinor, pct, note });
+    return out("ENDED_ON_TARGET", "Ended on target", { remainingMinor, pct, note });
+  }
+  if (i.spendToDateMinor === null) return out("NEEDS_REVIEW", "Needs Review", { note: "No spend data yet." });
+
+  const remainingMinor = i.budgetMinor - i.spendToDateMinor;
+  if (remainingMinor <= 0) return out("PAUSE", "Pause / Review", { remainingMinor, recommendedDailyMinor: 0, note: "The monthly budget is used up." });
+  const recommendedDailyMinor = Math.round(remainingMinor / i.remainingDays);
+  const base = { remainingMinor, recommendedDailyMinor };
+  if (i.currentDailyMinor === null) return out("NEEDS_REVIEW", "Needs Review", { ...base, note: i.currentDailyNote ?? "Current daily budget unavailable." });
+  if (i.currentDailyMinor === 0) return out("NEEDS_REVIEW", "Needs Review", { ...base, note: i.currentDailyNote ?? "No active campaigns." });
+
+  const raw = ((recommendedDailyMinor - i.currentDailyMinor) / i.currentDailyMinor) * 100;
+  const pct = Math.round(raw);
+  if (raw > thresholdPct) return out("INCREASE", `Increase ${pct}%`, { ...base, pct });
+  if (raw < -thresholdPct) return out("DECREASE", `Decrease ${Math.abs(pct)}%`, { ...base, pct });
+  return out("NO_CHANGE", "No Change", { ...base, pct });
+}
+
+const RANK: Record<AdjustmentKind, number> = { PAUSE: 5, ENDED_OVER: 5, DECREASE: 4, INCREASE: 3, ENDED_UNDER: 3, NEEDS_REVIEW: 2, NO_CHANGE: 1, ENDED_ON_TARGET: 1, NONE: 0 };
+
+/** Most urgent first: Pause / Review, biggest decreases, biggest increases, Needs Review, No Change, none. */
+export function compareAdjustments(a: Adjustment, b: Adjustment): number {
+  return RANK[b.kind] - RANK[a.kind] || Math.abs(b.pct ?? 0) - Math.abs(a.pct ?? 0) || (a.remainingMinor ?? 0) - (b.remainingMinor ?? 0);
+}

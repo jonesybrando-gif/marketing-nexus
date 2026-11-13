@@ -66,10 +66,21 @@ describe("GAQL helpers", () => {
   });
 
   it("parses campaigns with budgets", () => {
-    expect(parseCampaigns([{ campaign: { id: "1", name: "A", status: "PAUSED" }, campaignBudget: { amountMicros: "50000000" } }, { campaign: { id: "2", status: "WEIRD" } }])).toEqual([
-      { externalId: "1", name: "A", status: "PAUSED", dailyBudgetMinor: 5000 },
-      { externalId: "2", name: "Campaign 2", status: "UNKNOWN", dailyBudgetMinor: undefined },
+    expect(parseCampaigns([{ campaign: { id: "1", name: "A", status: "PAUSED" }, campaignBudget: { id: "77", amountMicros: "50000000", period: "DAILY" } }, { campaign: { id: "2", status: "WEIRD" } }])).toEqual([
+      { externalId: "1", name: "A", status: "PAUSED", dailyBudgetMinor: 5000, budgetKind: "DAILY", budgetId: "google:77" },
+      { externalId: "2", name: "Campaign 2", status: "UNKNOWN" },
     ]);
+  });
+
+  it("keeps the budget id for shared budgets and never reads a total-period budget as daily", () => {
+    const [a, b, total] = parseCampaigns([
+      { campaign: { id: "1" }, campaignBudget: { id: "9", amountMicros: "30000000", period: "DAILY" } },
+      { campaign: { id: "2" }, campaignBudget: { id: "9", amountMicros: "30000000", period: "DAILY" } },
+      { campaign: { id: "3" }, campaignBudget: { id: "10", amountMicros: "900000000", period: "CUSTOM_PERIOD" } },
+    ]);
+    expect(a.budgetId).toBe(b.budgetId);
+    expect(total).toMatchObject({ budgetKind: "LIFETIME" });
+    expect(total.dailyBudgetMinor).toBeUndefined();
   });
 });
 

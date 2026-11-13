@@ -14,6 +14,7 @@ import { googleAdsSpendCap } from "@/lib/pacing/spend-cap";
 import { formatDate } from "@/lib/time";
 import type { PlatformKey } from "@/lib/platforms";
 import { rollForwardBudgets } from "./budget-rollover";
+import { currentDailyBudget, type CurrentDailyBudget } from "@/lib/pacing/daily-budget";
 
 /** An account whose last successful sync is older than this is shown as stale. */
 export const STALE_AFTER_MS = 26 * 60 * 60 * 1000;
@@ -21,7 +22,7 @@ export const STALE_AFTER_MS = 26 * 60 * 60 * 1000;
 const clientInclude = {
   primaryManager: { select: { id: true, name: true } },
   // Removed campaigns are left out of pacing, reports and alerts entirely.
-  accounts: { include: { campaigns: { where: { excludedAt: null }, select: { id: true, accountId: true, name: true, status: true, platformDailyBudgetMinor: true } } } },
+  accounts: { include: { campaigns: { where: { excludedAt: null }, select: { id: true, accountId: true, name: true, status: true, platformDailyBudgetMinor: true, platformBudgetId: true, platformBudgetKind: true } } } },
   agency: { select: { thresholdUnder: true, thresholdSlightlyUnder: true, thresholdSlightlyOver: true, thresholdOver: true } },
 } satisfies Prisma.ClientInclude;
 
@@ -75,6 +76,10 @@ export interface PacingRow {
   warnings: string[];
   action: Action;
   attention: boolean;
+  /** The platforms' current daily budget for the campaigns behind this line (null for unbudgeted rows). */
+  currentDaily: CurrentDailyBudget | null;
+  /** Spend from period start through today, including today's partial spend (latest data). */
+  latestSpendMinor: number | null;
 }
 
 export interface ClientPacing {
@@ -204,10 +209,24 @@ function paceUnit(unit: PacingUnit, budget: BudgetWithRevisions, ctx: UnitContex
         .filter((c) => (unit.scope === "CAMPAIGN" ? unit.campaignIds.includes(c.id) : live.some((a) => a.id === c.accountId))),
     ),
   });
+  const unitCampaigns = scopeCampaigns(ctx, unit.scope === "CAMPAIGN" ? unit.campaignIds : null, live.length ? live : accts);
+  const latestSpendMinor = latestSpend(spendForUnit(unit, ctx.rows), periodStart, periodEnd, addDays(ctx.yesterday, 1));
   const hasEstimatedSpend = ctx.rows.some(
     (r) => r.costIsEstimated && (unit.scope === "CAMPAIGN" ? unit.campaignIds.includes(r.campaignId ?? "") : unit.accountIds.includes(r.accountId)),
   );
-  return { result, accts, warnings, hasEstimatedSpend };
+  return { result, accts, warnings, hasEstimatedSpend, unitCampaigns, latestSpendMinor };
+}
+
+/** Campaigns (not left out of reports) behind a line: the given campaign ids, or every campaign of the given accounts. */
+function scopeCampaigns(ctx: UnitContext, campaignIds: string[] | null, accts: AccountMeta[]) {
+  const all = ctx.client.accounts.flatMap((a) => a.campaigns);
+  return campaignIds ? all.filter((c) => campaignIds.includes(c.id)) : all.filter((c) => accts.some((a) => a.id === c.accountId));
+}
+
+/** Spend from periodStart through min(periodEnd, today), today's partial spend included. */
+function latestSpend(daily: Record<IsoDate, number>, periodStart: IsoDate, periodEnd: IsoDate, today: IsoDate): number {
+  const end = minDate(periodEnd, today);
+  return Object.entries(daily).reduce((s, [d, v]) => (d >= periodStart && d <= end ? s + v : s), 0);
 }
 
 function makeRow(
@@ -221,6 +240,7 @@ function makeRow(
   warnings: string[],
   hasEstimatedSpend: boolean,
   unbudgetedSpendMinor = 0,
+  budgetInfo: { currentDaily: CurrentDailyBudget; latestSpendMinor: number } | null = null,
 ): PacingRow {
   // Retired accounts (no connection) are history, not a sync problem: freshness
   // follows the accounts still being tracked, unless none are.
@@ -261,6 +281,8 @@ function makeRow(
     hasEstimatedSpend,
     warnings: notConnected ? [] : [...new Set(warnings)],
     action,
+    currentDaily: budgetInfo?.currentDaily ?? null,
+    latestSpendMinor: budgetInfo?.latestSpendMinor ?? null,
     attention: !notConnected && (disconnected || (result ? needsAttention(result.status) || needsAttention(result.forecastStatus) : false)),
   };
 }
@@ -317,7 +339,10 @@ function buildClientPacing(
   for (const p of rollup.filter((p) => p.unit.scope !== "CAMPAIGN")) {
     const b = budgetById.get(p.unit.budgetId)!;
     const label = p.unit.scope === "CLIENT" ? "Combined client budget" : p.accts[0].name;
-    const row = makeRow(ctx, b.id, p.unit.scope === "CLIENT" ? "CLIENT" : "ACCOUNT", label, p.accts, b.currency, p.result, [...periodWarnings, ...p.warnings], p.hasEstimatedSpend);
+    const row = makeRow(ctx, b.id, p.unit.scope === "CLIENT" ? "CLIENT" : "ACCOUNT", label, p.accts, b.currency, p.result, [...periodWarnings, ...p.warnings], p.hasEstimatedSpend, 0, {
+      currentDaily: currentDailyBudget(p.unitCampaigns),
+      latestSpendMinor: p.latestSpendMinor,
+    });
     outRows.push(row);
     allResults.push(p.result);
     if (!row.notConnected) connectedResults.push(p.result);
@@ -334,7 +359,11 @@ function buildClientPacing(
     if (combined.asOf) campaignAsOf.set(accountId, combined.asOf);
     const acct = accounts.find((a) => a.id === accountId)!;
     const n = group.length;
-    const row = makeRow(ctx, `campaigns:${accountId}`, "CAMPAIGNS", `${acct.name} (${n} campaign budget${n === 1 ? "" : "s"})`, [acct], budgetById.get(group[0].unit.budgetId)!.currency, combined, [...periodWarnings, ...group.flatMap((g) => g.warnings)], group.some((g) => g.hasEstimatedSpend));
+    const row = makeRow(ctx, `campaigns:${accountId}`, "CAMPAIGNS", `${acct.name} (${n} campaign budget${n === 1 ? "" : "s"})`, [acct], budgetById.get(group[0].unit.budgetId)!.currency, combined, [...periodWarnings, ...group.flatMap((g) => g.warnings)], group.some((g) => g.hasEstimatedSpend), 0, {
+      // All of the group's campaigns together, so a shared budget is counted once.
+      currentDaily: currentDailyBudget(group.flatMap((g) => g.unitCampaigns)),
+      latestSpendMinor: group.reduce((s, g) => s + g.latestSpendMinor, 0),
+    });
     outRows.push(row);
     allResults.push(combined);
     if (!row.notConnected) connectedResults.push(combined);

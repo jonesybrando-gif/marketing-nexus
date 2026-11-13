@@ -64,6 +64,27 @@ function retryAfterFromHeaders(headers: Headers): number | undefined {
   return ms;
 }
 
+interface MetaBudgetFields { daily_budget?: string; lifetime_budget?: string }
+interface MetaAdSet extends MetaBudgetFields { campaign_id?: string; effective_status?: string }
+const positive = (v?: string) => !!v && Number(v) > 0;
+
+/**
+ * A Meta campaign's budget. Campaign budget (CBO): its daily or lifetime budget.
+ * Otherwise the sum of its active ad sets' daily budgets; any active ad set on a
+ * lifetime budget makes the whole campaign LIFETIME (no fixed daily amount).
+ * Meta amounts are already in the currency's minor units. adSets = null means
+ * they couldn't be read, so the budget is left unreported.
+ */
+export function metaCampaignBudget(c: MetaBudgetFields & { id: string }, adSets: MetaAdSet[] | null): Pick<RemoteCampaign, "dailyBudgetMinor" | "budgetKind" | "budgetId"> {
+  const budgetId = `meta:${c.id}`;
+  if (positive(c.daily_budget)) return { budgetKind: "DAILY", dailyBudgetMinor: Number(c.daily_budget), budgetId };
+  if (positive(c.lifetime_budget)) return { budgetKind: "LIFETIME", budgetId };
+  if (!adSets) return {};
+  const active = adSets.filter((a) => a.campaign_id === c.id && a.effective_status === "ACTIVE");
+  if (active.some((a) => positive(a.lifetime_budget))) return { budgetKind: "LIFETIME", budgetId };
+  return { budgetKind: "DAILY", dailyBudgetMinor: active.reduce((s, a) => s + (positive(a.daily_budget) ? Number(a.daily_budget) : 0), 0), budgetId };
+}
+
 export function classifyMetaError(status: number, body: unknown, headers?: Headers): IntegrationError {
   const err = (body as GraphError | undefined)?.error;
   const code = err?.code;
@@ -312,16 +333,25 @@ export function createMetaAdsAdapter(opts: { config?: MetaAdsConfig | null; fetc
     },
 
     async listCampaigns(token, account) {
-      const rows = await getAll<{ id: string; name?: string; effective_status?: string; daily_budget?: string }>(`act_${account.externalId}/campaigns`, token, {
-        fields: "id,name,effective_status,daily_budget",
+      const rows = await getAll<MetaBudgetFields & { id: string; name?: string; effective_status?: string }>(`act_${account.externalId}/campaigns`, token, {
+        fields: "id,name,effective_status,daily_budget,lifetime_budget",
         limit: "500",
       });
+      // Campaigns without a campaign budget are budgeted per ad set (ABO): read those too.
+      let adSets: MetaAdSet[] | null = null;
+      if (rows.some((c) => !positive(c.daily_budget) && !positive(c.lifetime_budget))) {
+        try {
+          adSets = await getAll<MetaAdSet>(`act_${account.externalId}/adsets`, token, { fields: "campaign_id,effective_status,daily_budget,lifetime_budget", limit: "500" });
+        } catch (e) {
+          if (e instanceof IntegrationError && (e.kind === "AUTH_REVOKED" || e.kind === "APP_BLOCKED")) throw e;
+          adSets = null; // budgets stay unreported; spend still syncs
+        }
+      }
       return rows.map((c) => ({
         externalId: c.id,
         name: c.name ?? `Campaign ${c.id}`,
         status: STATUS_MAP[c.effective_status ?? ""] ?? "UNKNOWN",
-        // Meta budgets are already in the currency's minor units.
-        dailyBudgetMinor: c.daily_budget ? Number(c.daily_budget) : undefined,
+        ...metaCampaignBudget(c, adSets),
       }));
     },
 
