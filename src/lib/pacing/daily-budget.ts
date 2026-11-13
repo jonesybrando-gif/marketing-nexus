@@ -63,6 +63,12 @@ export interface AdjustmentInput {
   currentDailyNote: string | null;
   /** What the account actually spends per day lately (7-day average through the last complete day). null = unknown. */
   recentDailySpendMinor?: number | null;
+  /**
+   * False where spend doesn't follow the budget setting (Google Local Services
+   * bills per lead): the recommended budget is then the amount needed per day,
+   * not the current budget scaled.
+   */
+  budgetTracksSpend?: boolean;
 }
 
 export interface Adjustment {
@@ -133,19 +139,21 @@ export function recommendAdjustment(i: AdjustmentInput, thresholdPct = ADJUSTMEN
 
   const raw = ((neededDailyMinor - rate) / rate) * 100;
   const pct = Math.round(raw);
-  const scaled = Math.max(0, Math.round(i.currentDailyMinor * (neededDailyMinor / rate)));
+  const tracks = i.budgetTracksSpend ?? true;
+  const scaled = tracks ? Math.max(0, Math.round(i.currentDailyMinor * (neededDailyMinor / rate))) : neededDailyMinor;
+  const lsaNote = tracks ? null : "Local Services bills per lead, so spend doesn't follow the budget closely. Weekly budget ≈ 7 × the recommended daily budget.";
   if (raw > thresholdPct) {
-    if (rate < i.currentDailyMinor * BUDGET_LIMITED_SHARE) {
+    if (tracks && rate < i.currentDailyMinor * BUDGET_LIMITED_SHARE) {
       return out("NEEDS_REVIEW", "Needs Review", {
         ...base,
         pct,
         note: "Spending well under its daily budget, so raising the budget may not raise spend. Check bids, targeting or campaign limits.",
       });
     }
-    return out("INCREASE", `Increase ${pct}%`, { ...base, pct, recommendedDailyMinor: scaled });
+    return out("INCREASE", `Increase ${pct}%`, { ...base, pct, recommendedDailyMinor: scaled, note: lsaNote });
   }
-  if (raw < -thresholdPct) return out("DECREASE", `Decrease ${Math.abs(pct)}%`, { ...base, pct, recommendedDailyMinor: scaled });
-  return out("NO_CHANGE", "No Change", { ...base, pct, recommendedDailyMinor: i.currentDailyMinor });
+  if (raw < -thresholdPct) return out("DECREASE", `Decrease ${Math.abs(pct)}%`, { ...base, pct, recommendedDailyMinor: scaled, note: lsaNote });
+  return out("NO_CHANGE", "No Change", { ...base, pct, recommendedDailyMinor: i.currentDailyMinor, note: lsaNote });
 }
 
 const RANK: Record<AdjustmentKind, number> = { PAUSE: 5, ENDED_OVER: 5, DECREASE: 4, INCREASE: 3, ENDED_UNDER: 3, NEEDS_REVIEW: 2, NO_CHANGE: 1, ENDED_ON_TARGET: 1, NONE: 0 };
