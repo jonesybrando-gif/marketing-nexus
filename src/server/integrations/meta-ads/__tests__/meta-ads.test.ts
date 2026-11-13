@@ -68,6 +68,8 @@ describe("Meta error classification", () => {
     expect(classifyMetaError(400, e(17)).kind).toBe("RATE_LIMITED");
     expect(classifyMetaError(400, e(80004)).kind).toBe("RATE_LIMITED");
     expect(classifyMetaError(403, e(200)).kind).toBe("PERMISSION_DENIED");
+    // App or developer account blocked by Meta: not a per-account permission loss.
+    expect(classifyMetaError(403, e(200, { message: "API access blocked." })).kind).toBe("APP_BLOCKED");
     expect(classifyMetaError(400, e(1, { is_transient: true })).kind).toBe("TRANSIENT");
     expect(classifyMetaError(400, e(100)).kind).toBe("INVALID_REQUEST");
     expect(classifyMetaError(500, undefined).kind).toBe("TRANSIENT");

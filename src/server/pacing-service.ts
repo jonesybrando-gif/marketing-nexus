@@ -413,7 +413,8 @@ export async function loadPacing(where: Prisma.ClientWhereInput, now: Date = new
   }
   const budgets = await prisma.budget.findMany({
     where: budgetWhere(clients, now, periodDate),
-    include: { revisions: { orderBy: { effectiveDate: "asc" } } },
+    // Same-day revisions: the newest one wins (inline edits on the Budget Pacing page).
+    include: { revisions: { orderBy: [{ effectiveDate: "asc" }, { createdAt: "asc" }] } },
     orderBy: [{ periodStart: "asc" }, { createdAt: "asc" }],
   });
   // Load spend for the widest window any client needs.
