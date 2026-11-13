@@ -57,6 +57,8 @@ export interface SimpleRow {
   spendToDateMinor: number | null;
   /** Days left in the month including today; null for past months. */
   remainingDays: number | null;
+  /** Average daily spend over the last up-to-7 complete days; null = unknown. */
+  recentDailySpendMinor: number | null;
 }
 
 export interface SimpleStatusInfo {
@@ -156,6 +158,7 @@ export interface LineInput {
   spendUnverified: boolean;
   currentDaily?: CurrentDailyBudget | null;
   latestSpendMinor?: number | null;
+  recentDailySpendMinor?: number | null;
 }
 
 /**
@@ -226,6 +229,7 @@ export function buildSimpleRows(lines: LineInput[], monthFraction: (clientId: st
       daily: budgeted.length ? combineDailyBudgets(budgeted.map((l) => l.currentDaily ?? { minor: null, note: "Current daily budget unavailable." })) : null,
       spendToDateMinor: budgeted.length && latest.length === budgeted.filter((l) => !l.notConnected).length && latest.length ? latest.reduce((s, l) => s + l.latestSpendMinor!, 0) : null,
       remainingDays: remainingDays(first.clientId),
+      recentDailySpendMinor: budgeted.length && withData.length === budgeted.length && budgeted.every((l) => l.recentDailySpendMinor != null) ? budgeted.reduce((s, l) => s + l.recentDailySpendMinor!, 0) : null,
       clientId: first.clientId,
       clientName: first.clientName,
       platforms: [...new Set(group.flatMap((l) => l.platforms))],

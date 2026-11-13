@@ -61,6 +61,8 @@ export interface AdjustmentInput {
   remainingDays: number | null;
   currentDailyMinor: number | null;
   currentDailyNote: string | null;
+  /** What the account actually spends per day lately (7-day average through the last complete day). null = unknown. */
+  recentDailySpendMinor?: number | null;
 }
 
 export interface Adjustment {
@@ -68,18 +70,31 @@ export interface Adjustment {
   tone: "red" | "amber" | "green" | "gray";
   /** Short label for the cell: "Increase 15%", "Decrease 20%", "No Change"… */
   label: string;
-  /** Rounded percentage change (signed), when computed. */
+  /** Rounded percentage change to daily spend (signed), when computed. */
   pct: number | null;
   remainingMinor: number | null;
+  /** Spend needed per day, from today, to finish on budget. */
+  neededDailyMinor: number | null;
+  /** Suggested daily budget setting (current budget scaled by pct), when it makes sense. */
   recommendedDailyMinor: number | null;
   /** Extra explanation for the tooltip. */
   note: string | null;
 }
 
+/** Below this share of its daily budget, an account isn't limited by budget, so raising it may not raise spend. */
+export const BUDGET_LIMITED_SHARE = 0.8;
+
 /**
- * Remaining budget = monthly budget − spend so far (including today);
- * recommended daily = remaining ÷ days left including today (never negative);
- * adjustment = (recommended − current daily) ÷ current daily × 100.
+ * Direction follows what the account actually spends, not what its daily
+ * budgets allow: platforms often spend well below the daily budget, and
+ * comparing with the budget alone would tell an underspending account to cut.
+ *
+ *   needed per day = (monthly budget − spend so far, incl. today) ÷ days left incl. today
+ *   adjustment %   = (needed per day − recent daily spend) ÷ recent daily spend × 100
+ *   new daily budget = current daily budget × (1 + adjustment %)
+ *
+ * An increase for an account spending well under its daily budget is "Needs
+ * Review": a higher budget won't help; bids, targeting or limits are holding it back.
  */
 export function recommendAdjustment(i: AdjustmentInput, thresholdPct = ADJUSTMENT_THRESHOLD_PCT): Adjustment {
   const out = (kind: AdjustmentKind, label: string, extra: Partial<Adjustment> = {}): Adjustment => ({
@@ -88,6 +103,7 @@ export function recommendAdjustment(i: AdjustmentInput, thresholdPct = ADJUSTMEN
     label,
     pct: null,
     remainingMinor: null,
+    neededDailyMinor: null,
     recommendedDailyMinor: null,
     note: null,
     ...extra,
@@ -106,17 +122,30 @@ export function recommendAdjustment(i: AdjustmentInput, thresholdPct = ADJUSTMEN
   if (i.spendToDateMinor === null) return out("NEEDS_REVIEW", "Needs Review", { note: "No spend data yet." });
 
   const remainingMinor = i.budgetMinor - i.spendToDateMinor;
-  if (remainingMinor <= 0) return out("PAUSE", "Pause / Review", { remainingMinor, recommendedDailyMinor: 0, note: "The monthly budget is used up." });
-  const recommendedDailyMinor = Math.round(remainingMinor / i.remainingDays);
-  const base = { remainingMinor, recommendedDailyMinor };
+  if (remainingMinor <= 0) return out("PAUSE", "Pause / Review", { remainingMinor, neededDailyMinor: 0, recommendedDailyMinor: 0, note: "The monthly budget is used up." });
+  const neededDailyMinor = Math.round(remainingMinor / i.remainingDays);
+  const base = { remainingMinor, neededDailyMinor };
   if (i.currentDailyMinor === null) return out("NEEDS_REVIEW", "Needs Review", { ...base, note: i.currentDailyNote ?? "Current daily budget unavailable." });
   if (i.currentDailyMinor === 0) return out("NEEDS_REVIEW", "Needs Review", { ...base, note: i.currentDailyNote ?? "No active campaigns." });
+  const rate = i.recentDailySpendMinor ?? null;
+  if (rate === null) return out("NEEDS_REVIEW", "Needs Review", { ...base, note: "Recent daily spend unavailable." });
+  if (rate <= 0) return out("NEEDS_REVIEW", "Needs Review", { ...base, note: "No spend in the last 7 days although campaigns are active. Check the campaigns." });
 
-  const raw = ((recommendedDailyMinor - i.currentDailyMinor) / i.currentDailyMinor) * 100;
+  const raw = ((neededDailyMinor - rate) / rate) * 100;
   const pct = Math.round(raw);
-  if (raw > thresholdPct) return out("INCREASE", `Increase ${pct}%`, { ...base, pct });
-  if (raw < -thresholdPct) return out("DECREASE", `Decrease ${Math.abs(pct)}%`, { ...base, pct });
-  return out("NO_CHANGE", "No Change", { ...base, pct });
+  const scaled = Math.max(0, Math.round(i.currentDailyMinor * (neededDailyMinor / rate)));
+  if (raw > thresholdPct) {
+    if (rate < i.currentDailyMinor * BUDGET_LIMITED_SHARE) {
+      return out("NEEDS_REVIEW", "Needs Review", {
+        ...base,
+        pct,
+        note: "Spending well under its daily budget, so raising the budget may not raise spend. Check bids, targeting or campaign limits.",
+      });
+    }
+    return out("INCREASE", `Increase ${pct}%`, { ...base, pct, recommendedDailyMinor: scaled });
+  }
+  if (raw < -thresholdPct) return out("DECREASE", `Decrease ${Math.abs(pct)}%`, { ...base, pct, recommendedDailyMinor: scaled });
+  return out("NO_CHANGE", "No Change", { ...base, pct, recommendedDailyMinor: i.currentDailyMinor });
 }
 
 const RANK: Record<AdjustmentKind, number> = { PAUSE: 5, ENDED_OVER: 5, DECREASE: 4, INCREASE: 3, ENDED_UNDER: 3, NEEDS_REVIEW: 2, NO_CHANGE: 1, ENDED_ON_TARGET: 1, NONE: 0 };

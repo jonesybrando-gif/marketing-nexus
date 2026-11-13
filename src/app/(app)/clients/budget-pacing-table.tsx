@@ -26,7 +26,14 @@ const money = (r: SimpleRow) => (m: number) => formatMoney(m, r.currency, { whol
 const platformText = (r: SimpleRow) => platformSortLabel(r.platforms, PLATFORM_LABEL) || "—";
 const info = (r: SimpleRow) => classifySimplePacing(r, money(r));
 const adjustment = (r: SimpleRow) =>
-  recommendAdjustment({ budgetMinor: r.budgetMinor, spendToDateMinor: r.spendToDateMinor, remainingDays: r.remainingDays, currentDailyMinor: r.daily?.minor ?? null, currentDailyNote: r.daily?.note ?? null });
+  recommendAdjustment({
+    budgetMinor: r.budgetMinor,
+    spendToDateMinor: r.spendToDateMinor,
+    remainingDays: r.remainingDays,
+    currentDailyMinor: r.daily?.minor ?? null,
+    currentDailyNote: r.daily?.note ?? null,
+    recentDailySpendMinor: r.recentDailySpendMinor,
+  });
 const ADJ_TEXT: Record<Adjustment["tone"], string> = { red: "text-critical-ink", amber: "text-warning-ink", green: "text-good-ink", gray: "text-text-3" };
 const ADJ_DOT: Record<Adjustment["tone"], string> = { red: "bg-critical", amber: "bg-dot-watch", green: "bg-good", gray: "bg-transparent ring-1 ring-inset ring-text-3/60" };
 
@@ -366,9 +373,11 @@ function AdjustmentCell({ row, adj }: { row: SimpleRow; adj: Adjustment }) {
       <strong className="font-semibold">{adj.label}</strong>
       {!ended && <span>Current daily budget: {row.daily?.minor != null ? m(row.daily.minor) : "unavailable"}</span>}
       {!ended && adj.recommendedDailyMinor !== null && <span>Recommended daily budget: {m(adj.recommendedDailyMinor)}</span>}
+      {!ended && row.recentDailySpendMinor !== null && <span>Actual daily spend (last 7 days): {m(row.recentDailySpendMinor)}</span>}
+      {!ended && adj.neededDailyMinor !== null && <span>Needed per day to finish on budget: {m(adj.neededDailyMinor)}</span>}
       {adj.remainingMinor !== null && <span>Remaining monthly budget: {formatSignedMoney(adj.remainingMinor, m)}</span>}
       {!ended && row.remainingDays !== null && <span>Days remaining: {row.remainingDays} (incl. today)</span>}
-      {adj.pct !== null && <span>Adjustment: {adj.pct > 0 ? "+" : ""}{adj.pct}%</span>}
+      {adj.pct !== null && <span>Change to daily spend: {adj.pct > 0 ? "+" : ""}{adj.pct}%</span>}
       {!ended && recent > 0 && <span className="opacity-80">Includes {m(recent)} spent since the last complete day.</span>}
       {adj.note && <span className="opacity-80">{adj.note}</span>}
       {row.warning && <span className="opacity-80">{row.warning}</span>}
@@ -380,7 +389,7 @@ function AdjustmentCell({ row, adj }: { row: SimpleRow; adj: Adjustment }) {
       <button type="button" className={cn("inline-flex cursor-default items-center gap-1.5 rounded-sm text-[13px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring", ADJ_TEXT[adj.tone])}>
         <span aria-hidden className={cn("h-1.5 w-1.5 rounded-full", ADJ_DOT[adj.tone])} />
         {adj.label}
-        <span className="sr-only">. {[adj.recommendedDailyMinor !== null ? `Recommended daily budget ${m(adj.recommendedDailyMinor)}` : "", row.daily?.minor != null ? `current ${m(row.daily.minor)}` : "", adj.note ?? ""].filter(Boolean).join(", ")}</span>
+        <span className="sr-only">. {[adj.recommendedDailyMinor !== null ? `Recommended daily budget ${m(adj.recommendedDailyMinor)}` : "", row.daily?.minor != null ? `current ${m(row.daily.minor)}` : "", adj.neededDailyMinor !== null ? `needed per day ${m(adj.neededDailyMinor)}` : "", adj.note ?? ""].filter(Boolean).join(", ")}</span>
       </button>
     </Tip>
   );

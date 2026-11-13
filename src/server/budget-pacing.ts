@@ -38,6 +38,7 @@ function toLine(r: PacingRow): LineInput {
     spendUnverified: r.accounts.some((a) => !a.spendIsVerified && !a.isDemo),
     currentDaily: r.currentDaily,
     latestSpendMinor: r.latestSpendMinor,
+    recentDailySpendMinor: r.result && !r.notConnected ? r.result.currentDailyRateMinor : null,
   };
 }
 
