@@ -25,5 +25,12 @@ export function aggregateMetric(key: string, days: DailyValue[], byMetric: Recor
       const r = num / den;
       return def.format === "pct" ? r * 100 : r;
     }
+    case "difference": {
+      if (!def.diffOf) return null;
+      const a = byMetric[def.diffOf.minuend] ?? [];
+      // No data for the base metric means unknown, never zero.
+      if (!a.length) return null;
+      return Math.max(0, sum(a) - sum(byMetric[def.diffOf.subtrahend] ?? []));
+    }
   }
 }

@@ -42,10 +42,10 @@ const TABS: LibraryTab[] = [...SOURCE_ORDER, "text"];
 const tabLabel = (t: LibraryTab) => (t === "text" ? "Text" : SOURCE_LABEL[t]);
 
 /** Side panel listing widgets by source. Pick a type and metrics, then add. */
-export function WidgetLibrary({ linked, templateMode, onAdd, onClose, full }: { linked: MetricSource[]; templateMode: boolean; onAdd: (drafts: WidgetDraft[]) => void; onClose: () => void; full: boolean }) {
-  const [tab, setTab] = useState<LibraryTab>("ads");
+export function WidgetLibrary({ linked, templateMode, onAdd, onClose, full, initialTab = "ads", initialKind, heading }: { linked: MetricSource[]; templateMode: boolean; onAdd: (drafts: WidgetDraft[]) => void; onClose: () => void; full: boolean; initialTab?: LibraryTab; initialKind?: WidgetKind; heading?: string }) {
+  const [tab, setTab] = useState<LibraryTab>(initialTab);
   const kinds = kindsFor(tab);
-  const [kind, setKind] = useState<WidgetKind | null>(kinds[0] ?? null);
+  const [kind, setKind] = useState<WidgetKind | null>(initialKind && kinds.includes(initialKind) ? initialKind : kinds[0] ?? null);
   const [picked, setPicked] = useState<string[]>([]);
   const [dimension, setDimension] = useState("");
   const metrics = tab === "text" ? [] : metricsFor(tab);
@@ -99,7 +99,7 @@ export function WidgetLibrary({ linked, templateMode, onAdd, onClose, full }: { 
   return (
     <aside className="fixed inset-y-0 right-0 z-40 flex w-full max-w-sm flex-col border-l border-border bg-surface shadow-xl" aria-label="Add a widget">
       <div className="flex items-center justify-between border-b border-border px-4 py-3">
-        <h2 className="text-sm font-semibold">Add a widget</h2>
+        <h2 className="text-sm font-semibold">{heading ?? "Add a widget"}</h2>
         <Button type="button" variant="ghost" size="icon" onClick={onClose} aria-label="Close widget library"><X className="h-4 w-4" aria-hidden /></Button>
       </div>
       <div className="flex min-h-0 flex-1">

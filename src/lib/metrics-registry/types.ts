@@ -15,8 +15,9 @@ export type MetricFormat = "count" | "money" | "pct" | "duration" | "position" |
  * - last: the latest day's value (followers, total reviews)
  * - avg: plain mean of the days (rarely right; prefer weighted)
  * - weighted: ratio of two summed metrics, see `ratioOf`
+ * - difference: one summed metric minus another, see `diffOf` (e.g. repeat callers = calls − first-time callers)
  */
-export type Aggregation = "sum" | "last" | "avg" | "weighted";
+export type Aggregation = "sum" | "last" | "avg" | "weighted" | "difference";
 
 export interface MetricDef {
   /** Globally unique, "<source>.<name>", e.g. "ga4.sessions". */
@@ -28,6 +29,8 @@ export interface MetricDef {
   aggregation: Aggregation;
   /** For aggregation "weighted": value = sum(numerator) / sum(denominator) (* 100 for pct). */
   ratioOf?: { numerator: string; denominator: string };
+  /** For aggregation "difference": value = sum(minuend) − sum(subtrahend). */
+  diffOf?: { minuend: string; subtrahend: string };
   /** Is an increase good, bad or neither? Drives change colours. Lower position = better for rankings. */
   better: "up" | "down" | "neutral";
   description: string;

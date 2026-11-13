@@ -14,6 +14,8 @@ function withDeps(keys: string[]): string[] {
     out.add(k);
     const r = METRIC_BY_KEY[k]?.ratioOf;
     if (r) { out.add(r.numerator); out.add(r.denominator); }
+    const d = METRIC_BY_KEY[k]?.diffOf;
+    if (d) { out.add(d.minuend); out.add(d.subtrahend); }
   }
   return [...out];
 }
@@ -47,6 +49,12 @@ export async function metricSeries(clientId: string, keys: string[], from: IsoDa
       out[k] = dates.map((date) => {
         const pick = (m: string) => (byDay[m] ?? []).filter((d) => d.date === date);
         return { date, value: aggregateMetric(k, [], { [def.ratioOf!.numerator]: pick(def.ratioOf!.numerator), [def.ratioOf!.denominator]: pick(def.ratioOf!.denominator) }) ?? 0 };
+      });
+    } else if (def?.aggregation === "difference" && def.diffOf) {
+      const parts = [def.diffOf.minuend, def.diffOf.subtrahend];
+      out[k] = (byDay[def.diffOf.minuend] ?? []).map(({ date }) => {
+        const pick = Object.fromEntries(parts.map((m) => [m, (byDay[m] ?? []).filter((x) => x.date === date)]));
+        return { date, value: aggregateMetric(k, [], pick) ?? 0 };
       });
     } else out[k] = byDay[k] ?? [];
   }

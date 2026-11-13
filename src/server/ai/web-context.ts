@@ -1,5 +1,6 @@
 import "server-only";
 import type { AiWebContext, AiWebMetric } from "@/lib/ai-context";
+import type { MetricSource } from "@/lib/metrics-registry";
 import { formatMetric } from "@/lib/dashboards/metrics";
 import { METRIC_BY_KEY } from "@/lib/metrics-registry";
 import { diffDays, type IsoDate } from "@/lib/pacing/dates";
@@ -37,7 +38,15 @@ function metric(key: string, cur: number | null, prev: number | null | undefined
 }
 
 /** Returns null when the client has none of these sources connected. */
-export async function webContextFor(clientId: string, currency: string, range: Range, cmp: Range | null, opts: { callrail?: boolean; callsFromAds?: { current: number; previous: number | null } | null } = {}): Promise<AiWebContext | null> {
+export async function webContextFor(
+  clientId: string,
+  currency: string,
+  range: Range,
+  cmp: Range | null,
+  opts: { callrail?: boolean; callsFromAds?: { current: number; previous: number | null } | null; include?: Set<MetricSource> } = {},
+): Promise<AiWebContext | null> {
+  // Sources left out of the client's Report are left out of the AI context (said as "not in this report").
+  const on = (s: MetricSource) => !opts.include || opts.include.has(s);
   const keys = [...ANALYTICS, ...SEARCH, ...(opts.callrail ? CALLS : [])];
   const [cur, prev, channelsNow, channelsBefore, ranks, sourcesNow, sourcesBefore] = await Promise.all([
     metricTotals(clientId, keys, range.from, range.to),
@@ -68,7 +77,7 @@ export async function webContextFor(clientId: string, currency: string, range: R
 
   // Rank change is "positions gained": a move from 8 to 3 is +5.
   const moved = ranks.filter((r) => r.change !== null && r.change !== 0);
-  const rankings = ranks.length
+  const rankings = on("rank") && ranks.length
     ? {
         tracked: ranks.length,
         inTop3: ranks.filter((r) => r.position !== null && r.position <= 3).length,
@@ -83,8 +92,8 @@ export async function webContextFor(clientId: string, currency: string, range: R
       }
     : null;
 
-  const analytics = has(ANALYTICS) ? pick(ANALYTICS) : null;
-  const search = has(SEARCH) ? pick(SEARCH) : null;
+  const analytics = on("ga4") && has(ANALYTICS) ? pick(ANALYTICS) : null;
+  const search = on("gsc") && has(SEARCH) ? pick(SEARCH) : null;
   // CallRail: null when not linked (the prompt says "not connected"), figures when it is; undefined when not asked.
   let calls: AiWebContext["calls"] = opts.callrail === undefined ? undefined : null;
   if (opts.callrail) {
@@ -100,5 +109,6 @@ export async function webContextFor(clientId: string, currency: string, range: R
     };
   }
   if (!analytics && !search && !rankings && !calls) return null;
-  return { analytics, channels, search, rankings, calls };
+  const notInReport = (["ga4", "gsc", "rank"] as const).filter((s) => !on(s));
+  return { analytics, channels: on("ga4") ? channels : [], search, rankings, calls, notInReport };
 }

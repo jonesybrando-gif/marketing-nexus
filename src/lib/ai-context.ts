@@ -88,6 +88,8 @@ export interface AiWebContext {
     /** Biggest moves, best first; change is positions gained (+) or lost (-). */
     movers: { keyword: string; position: number | null; change: number }[];
   } | null;
+  /** Sources the agency left out of this client's report: not discussed (not "not connected"). */
+  notInReport?: ("ga4" | "gsc" | "rank")[];
   /** CallRail call tracking, when linked: totals and calls by source. */
   calls?: {
     totals: AiWebMetric[];
@@ -211,7 +213,7 @@ export function buildAiContext(i: AiContextInput): string {
     if (w.analytics) {
       lines.push("Website (Google Analytics 4, all traffic sources):");
       for (const x of w.analytics) lines.push(`- ${line(x)}`);
-    } else lines.push("- Google Analytics is not connected for this client.");
+    } else if (!w.notInReport?.includes("ga4")) lines.push("- Google Analytics is not connected for this client.");
     if (w.channels.length) {
       lines.push("Website visits and goals by channel:");
       for (const ch of w.channels) lines.push(`- ${ch.channel}: visits ${ch.visits.value}${ch.visits.changePct === null ? "" : ` (${pct(ch.visits.changePct)})`}; website goals ${ch.goals.value}${ch.goals.changePct === null ? "" : ` (${pct(ch.goals.changePct)})`}`);
@@ -219,12 +221,12 @@ export function buildAiContext(i: AiContextInput): string {
     if (w.search) {
       lines.push("Google organic search (Search Console):");
       for (const x of w.search) lines.push(`- ${line(x)}`);
-    } else lines.push("- Search Console is not connected for this client.");
+    } else if (!w.notInReport?.includes("gsc")) lines.push("- Search Console is not connected for this client.");
     const r = w.rankings;
     if (r && r.tracked > 0) {
       lines.push(`Tracked keyword rankings (${r.tracked} keywords): ${r.inTop3} in the top 3, ${r.inTop10} in the top 10; over the last ${r.changeDays} days ${r.improved} moved up and ${r.declined} moved down.`);
       for (const m of r.movers) lines.push(`- "${m.keyword}": now ${m.position === null ? "not in the top 100" : `position ${m.position}`} (${m.change > 0 ? `up ${m.change}` : `down ${-m.change}`} positions)`);
-    } else lines.push("- No keyword rankings are tracked for this client.");
+    } else if (!w.notInReport?.includes("rank")) lines.push("- No keyword rankings are tracked for this client.");
     lines.push("Website goals are key events counted by Google Analytics; ad conversions are counted by each ad platform. They overlap, so never add them together.");
     const c = w.calls;
     if (c) {
