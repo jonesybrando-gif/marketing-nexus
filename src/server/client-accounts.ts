@@ -72,3 +72,26 @@ export async function stopTrackingAccount(agencyId: string, clientId: string, ac
   });
   return count > 0;
 }
+
+export type RemoveResult =
+  | { ok: true; name: string; externalId: string; platform: Platform; dayRowsDeleted: number }
+  | { ok: false; error: string };
+
+/**
+ * Permanently remove an ad account the client no longer tracks, with its stored
+ * history. Only accounts that already stopped tracking (DISCONNECTED, no login)
+ * qualify, and only when no budget targets the account itself.
+ */
+export async function removeStoppedAccount(agencyId: string, clientId: string, accountId: string): Promise<RemoveResult> {
+  const a = await prisma.adAccount.findFirst({
+    where: { id: accountId, clientId, isDemo: false, client: { agencyId } },
+    select: { id: true, name: true, externalId: true, platform: true, status: true, connectionId: true },
+  });
+  if (!a) return { ok: false, error: "That account no longer exists." };
+  if (a.status !== "DISCONNECTED" || a.connectionId) return { ok: false, error: `${a.name} is still being tracked. Stop tracking it first, then remove it.` };
+  const budgets = await prisma.budget.count({ where: { accountId: a.id } });
+  if (budgets > 0) return { ok: false, error: `${a.name} has ${budgets} budget(s) of its own. Delete them on the Budgets page first.` };
+  const dayRows = await prisma.dailyPerformance.count({ where: { accountId: a.id } });
+  await prisma.adAccount.delete({ where: { id: a.id } });
+  return { ok: true, name: a.name, externalId: a.externalId, platform: a.platform, dayRowsDeleted: dayRows };
+}

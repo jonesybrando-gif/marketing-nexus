@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useState } from "react";
-import { linkClientAccountAction } from "./actions";
+import { linkClientAccountAction, removeStoppedAccountAction } from "./actions";
 import { useFormSubmit } from "@/components/use-form-submit";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -61,6 +61,22 @@ export function StopTrackingButton({ action }: { action: () => Promise<void> }) 
   return (
     <form action={action} onSubmit={(e) => { if (!window.confirm("Stop tracking this account? It stops syncing; its history stays in reports.")) e.preventDefault(); }}>
       <Button type="submit" variant="outline" size="sm">Stop tracking</Button>
+    </form>
+  );
+}
+
+export function RemoveAccountButton({ clientId, accountId, name }: { clientId: string; accountId: string; name: string }) {
+  const [state, action, pending] = useActionState(removeStoppedAccountAction.bind(null, clientId, accountId), undefined);
+  return (
+    <form
+      action={action}
+      onSubmit={(e) => {
+        if (!window.confirm(`Remove ${name} from this client? Its stored history is deleted, so past months will no longer include its spend. This can't be undone.`)) e.preventDefault();
+      }}
+      className="flex items-center gap-2"
+    >
+      {state?.error && <span className="text-xs text-critical-ink" role="alert">{state.error}</span>}
+      <Button type="submit" variant="outline" size="sm" disabled={pending}>{pending ? "Removing…" : "Remove"}</Button>
     </form>
   );
 }

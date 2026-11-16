@@ -10,7 +10,7 @@ import { validateNewBudget, validateRevision } from "@/lib/budget-validation";
 import { isWholeMonth } from "@/lib/budget-rollover";
 import { addDays, dateToIso, isoToDate, monthBounds, todayInTimeZone, type IsoDate } from "@/lib/pacing/dates";
 import { setCampaignIncluded, setIncludeNewCampaigns, CampaignSelectionError } from "../campaign-selection";
-import { linkAccountToClient, stopTrackingAccount } from "../client-accounts";
+import { linkAccountToClient, removeStoppedAccount, stopTrackingAccount } from "../client-accounts";
 import { getAdapter } from "../integrations/registry";
 import { withAccessToken } from "../integrations/tokens";
 import { IntegrationError } from "../integrations/errors";
@@ -375,7 +375,8 @@ async function removeAdAccount(args: Record<string, unknown>) {
     args,
     `This permanently removes ${a.platform} ${a.name} (${a.externalId}) from ${c.name}, with its ${spend._count} stored day rows (${major(spend._sum.costMinor ?? 0) ?? 0} of spend in total). Past months that counted that spend will no longer include it.`,
   );
-  await prisma.adAccount.delete({ where: { id: a.id } });
+  const result = await removeStoppedAccount(agencyId, c.id, a.id);
+  if (!result.ok) throw new ToolInputError(result.error);
   console.info(`[mcp] removed disconnected ${a.platform} ${a.externalId} from ${c.name}`);
   return { ok: true, client: c.name, removed: `${a.platform} ${a.name} (${a.externalId})`, dayRowsDeleted: spend._count, spendRemoved: major(spend._sum.costMinor ?? 0) };
 }

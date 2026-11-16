@@ -9,7 +9,7 @@ import { requireAdmin } from "@/server/access";
 import { getAdapter } from "@/server/integrations/registry";
 import { withAccessToken } from "@/server/integrations/tokens";
 import { IntegrationError } from "@/server/integrations/errors";
-import { linkAccountToClient, stopTrackingAccount } from "@/server/client-accounts";
+import { linkAccountToClient, removeStoppedAccount, stopTrackingAccount } from "@/server/client-accounts";
 import { syncAccount } from "@/server/sync/sync-account";
 
 export type PickState = { error?: string } | undefined;
@@ -60,4 +60,16 @@ export async function stopTrackingAction(clientId: string, accountId: string): P
   await stopTrackingAccount(user.agencyId, clientId, accountId);
   revalidatePath(`/clients/${clientId}`, "layout");
   revalidatePath("/dashboard");
+}
+
+export type RemoveState = { error?: string } | undefined;
+
+/** Permanently remove an account this client already stopped tracking, with its stored history. */
+export async function removeStoppedAccountAction(clientId: string, accountId: string, _prev: RemoveState): Promise<RemoveState> {
+  const user = await requireAdmin();
+  const result = await removeStoppedAccount(user.agencyId, clientId, accountId);
+  if (!result.ok) return { error: result.error };
+  revalidatePath(`/clients/${clientId}`, "layout");
+  revalidatePath("/dashboard");
+  return undefined;
 }

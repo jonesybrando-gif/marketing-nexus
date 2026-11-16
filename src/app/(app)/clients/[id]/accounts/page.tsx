@@ -13,7 +13,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { Select } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { stopTrackingAction } from "./actions";
-import { StopTrackingButton } from "./forms";
+import { RemoveAccountButton, StopTrackingButton } from "./forms";
 
 export const dynamic = "force-dynamic";
 
@@ -36,10 +36,11 @@ export default async function ClientAccountsPage({ params, searchParams }: { par
   const back = clientBackHref(id, sp, "settings");
   const user = await requireClientEdit(id);
   const admin = user.role === "AGENCY_ADMIN";
-  const [client, accounts, connections] = await Promise.all([
+  const [client, accounts, connections, stopped] = await Promise.all([
     prisma.client.findUniqueOrThrow({ where: { id }, select: { name: true } }),
     prisma.adAccount.findMany({ where: { clientId: id, status: { not: "DISCONNECTED" } }, include: { connection: { select: { status: true } } }, orderBy: { name: "asc" } }),
     prisma.platformConnection.findMany({ where: { agencyId: user.agencyId, status: { not: "DISCONNECTED" } }, select: { id: true, platform: true, label: true }, orderBy: { createdAt: "desc" } }),
+    prisma.adAccount.findMany({ where: { clientId: id, status: "DISCONNECTED", isDemo: false }, select: { id: true, name: true, platform: true, externalId: true, lastSuccessfulSyncAt: true }, orderBy: { name: "asc" } }),
   ]);
   const status = Object.fromEntries(integrationStatus().map((i) => [i.platform, i]));
 
@@ -117,6 +118,33 @@ export default async function ClientAccountsPage({ params, searchParams }: { par
           </Card>
         );
       })}
+      {stopped.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Stopped tracking</CardTitle>
+            <CardDescription>These accounts no longer sync. Their history still counts in past months. Remove one to delete it and its history from {client.name}.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ul className="flex flex-col divide-y divide-border rounded-lg border border-border">
+              {stopped.map((a) => (
+                <li key={a.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-sm">
+                  <span className="flex min-w-0 flex-col gap-0.5">
+                    <span className="font-medium">{a.name}</span>
+                    <span className="text-xs text-text-3">
+                      {PLATFORM_LABEL[a.platform]} · {(a.platform === "GOOGLE_ADS" || a.platform === "GOOGLE_LSA") && /^\d{10}$/.test(a.externalId) ? formatCustomerId(a.externalId) : a.externalId}
+                      {" · "}Last synced {relativeTime(a.lastSuccessfulSyncAt?.toISOString() ?? null).toLowerCase()}
+                    </span>
+                  </span>
+                  <span className="flex items-center gap-2">
+                    <Badge variant="neutral">Stopped</Badge>
+                    {admin && <RemoveAccountButton clientId={id} accountId={a.id} name={a.name} />}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
