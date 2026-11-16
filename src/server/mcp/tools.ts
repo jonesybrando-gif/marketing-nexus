@@ -1,6 +1,6 @@
 import "server-only";
-// Read-only tools for the Marketing Nexus MCP connector. Every tool only reads;
-// none of them can change budgets, campaigns or ad accounts.
+// Read tools for the Marketing Nexus MCP connector. None of these change
+// anything; the write tools live in write-tools.ts (see index.ts).
 import type { Prisma } from "@prisma/client";
 import { prisma } from "../db";
 import { loadPacing, type PacingRow } from "../pacing-service";

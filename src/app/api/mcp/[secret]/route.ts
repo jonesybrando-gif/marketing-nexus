@@ -1,11 +1,12 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { mcpAuthorized } from "@/server/mcp/auth";
 import { handleMcpMessage } from "@/server/mcp/protocol";
-import { MCP_TOOLS } from "@/server/mcp/tools";
+import { connectorInstructions, connectorTools } from "@/server/mcp";
 
-// Read-only MCP connector (Streamable HTTP, stateless, JSON responses).
-// Connector URL: <APP_URL>/api/mcp/<MCP_SECRET>. Off until MCP_SECRET is set.
-// See docs/mcp-connector.md.
+// MCP connector (Streamable HTTP, stateless, JSON responses). Read tools plus
+// write tools for Marketing Nexus's own records; MCP_READ_ONLY=true turns the
+// write tools off. Connector URL: <APP_URL>/api/mcp/<MCP_SECRET>. Off until
+// MCP_SECRET is set. See docs/mcp-connector.md.
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
@@ -27,7 +28,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
   } catch {
     return NextResponse.json({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "Parse error" } }, { status: 400, headers: NO_STORE });
   }
-  const res = await handleMcpMessage(body, MCP_TOOLS);
+  const res = await handleMcpMessage(body, connectorTools(), "marketing-nexus", connectorInstructions());
   if (res === null) return new NextResponse(null, { status: 202, headers: NO_STORE });
   return NextResponse.json(res, { headers: NO_STORE });
 }
