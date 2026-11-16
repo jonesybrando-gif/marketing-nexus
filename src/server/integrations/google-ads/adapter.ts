@@ -3,7 +3,7 @@ import { IntegrationError } from "../errors";
 import type { AccountRef, DetailKind, OAuthTokens, PlatformAdapter, RemoteAccount } from "../types";
 import { GoogleAdsClient, type FetchLike } from "./client";
 import { googleAdsConfig, type GoogleAdsConfig } from "./config";
-import { campaignsQuery, countLocalServicesLeads, CUSTOMER_CLIENT_QUERY, dailyPerformanceQuery, flattenStream, localServicesLeadsQuery, parseCampaigns, parseCustomerClients, parseDailyPerformance, type CampaignRow, type CustomerClientRow, type LocalServicesLeadRow, type PerformanceRow } from "./gaql";
+import { campaignsQuery, countLocalServicesLeads, filterToScope, CUSTOMER_CLIENT_QUERY, dailyPerformanceQuery, flattenStream, localServicesLeadsQuery, parseCampaigns, parseCustomerClients, parseDailyPerformance, type CampaignRow, type CustomerClientRow, type LocalServicesLeadRow, type PerformanceRow } from "./gaql";
 import type { RemoteDailyRow } from "../types";
 import { detailQuery, parseDetailRows, type DetailApiRow } from "./details";
 
@@ -125,13 +125,13 @@ export function createGoogleAdsAdapter(opts: { config?: GoogleAdsConfig | null; 
 
     async listCampaigns(accessToken, account: AccountRef) {
       const batches = await client(accessToken).searchStream<CampaignRow>(account.externalId, campaignsQuery(scope), account.loginCustomerId);
-      return parseCampaigns(flattenStream(batches));
+      return parseCampaigns(filterToScope(flattenStream(batches), scope));
     },
 
     async fetchDailyPerformance(accessToken, account, from, to) {
       const c = client(accessToken);
       const batches = await c.searchStream<PerformanceRow>(account.externalId, dailyPerformanceQuery(from, to, scope), account.loginCustomerId);
-      const perf = parseDailyPerformance(flattenStream(batches));
+      const perf = parseDailyPerformance(filterToScope(flattenStream(batches), scope));
       if (!opts.localServices) return perf;
 
       // Local Services: add lead counts from local_services_lead.
