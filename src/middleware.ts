@@ -22,5 +22,6 @@ export async function middleware(req: NextRequest) {
 
 export const config = {
   // r/ = shared report links (token-checked in the page and route themselves).
-  matcher: ["/((?!$|privacy|terms|robots.txt|sitemap.xml|setup|login|accept-invite|reset-password|forgot-password|api/cron|api/summary-status|r/|_next/static|_next/image|favicon.ico|icon.png|apple-icon.png).*)"],
+  // api/mcp/ = read-only MCP connector (checks MCP_SECRET itself).
+  matcher: ["/((?!$|privacy|terms|robots.txt|sitemap.xml|setup|login|accept-invite|reset-password|forgot-password|api/cron|api/mcp/|api/summary-status|r/|_next/static|_next/image|favicon.ico|icon.png|apple-icon.png).*)"],
 };
