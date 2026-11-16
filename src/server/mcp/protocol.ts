@@ -1,6 +1,6 @@
 // Minimal MCP (Model Context Protocol) server over Streamable HTTP, stateless,
-// JSON responses only. Kept dependency-free: the connector is read-only and
-// only needs initialize, tools/list, tools/call and ping.
+// JSON responses only. Kept dependency-free: the connector only needs
+// initialize, tools/list, tools/call and ping.
 
 export const MCP_PROTOCOL_VERSION = "2025-06-18";
 const SUPPORTED_VERSIONS = new Set(["2025-06-18", "2025-03-26", "2024-11-05"]);
@@ -31,7 +31,9 @@ const ok = (id: JsonRpcRequest["id"], result: unknown): JsonRpcResponse => ({ js
 /** Thrown by a tool for a bad argument; returned to the model as a tool error, not a protocol error. */
 export class ToolInputError extends Error {}
 
-async function handleOne(msg: JsonRpcRequest, tools: McpTool[], serverName: string): Promise<JsonRpcResponse | null> {
+const DEFAULT_INSTRUCTIONS = "Read-only access to Marketing Nexus budgets and pacing. Amounts are in the account currency (major units, e.g. dollars). Nothing here can change budgets or ad accounts.";
+
+async function handleOne(msg: JsonRpcRequest, tools: McpTool[], serverName: string, instructions: string): Promise<JsonRpcResponse | null> {
   if (!msg || typeof msg !== "object" || typeof msg.method !== "string") return err(msg?.id, -32600, "Invalid request");
   const isNotification = msg.id === undefined;
   if (isNotification) return null; // notifications/initialized, notifications/cancelled, ...
@@ -42,7 +44,7 @@ async function handleOne(msg: JsonRpcRequest, tools: McpTool[], serverName: stri
         protocolVersion: SUPPORTED_VERSIONS.has(requested) ? requested : MCP_PROTOCOL_VERSION,
         capabilities: { tools: { listChanged: false } },
         serverInfo: { name: serverName, version: "1.0.0" },
-        instructions: "Read-only access to Marketing Nexus budgets and pacing. Amounts are in the account currency (major units, e.g. dollars). Nothing here can change budgets or ad accounts.",
+        instructions,
       });
     }
     case "ping":
@@ -71,11 +73,21 @@ async function handleOne(msg: JsonRpcRequest, tools: McpTool[], serverName: stri
 }
 
 /** Handles a JSON-RPC message or batch. Returns null when nothing needs to be sent back (only notifications). */
-export async function handleMcpMessage(body: unknown, tools: McpTool[], serverName = "marketing-nexus"): Promise<JsonRpcResponse | JsonRpcResponse[] | null> {
+export async function handleMcpMessage(
+  body: unknown,
+  tools: McpTool[],
+  serverName = "marketing-nexus",
+  instructions = DEFAULT_INSTRUCTIONS,
+): Promise<JsonRpcResponse | JsonRpcResponse[] | null> {
   if (Array.isArray(body)) {
     if (body.length === 0) return err(null, -32600, "Invalid request");
-    const out = (await Promise.all(body.map((m) => handleOne(m as JsonRpcRequest, tools, serverName)))).filter((r): r is JsonRpcResponse => r !== null);
+    // Run a batch in order: write tools may depend on an earlier call in the same batch.
+    const out: JsonRpcResponse[] = [];
+    for (const m of body) {
+      const r = await handleOne(m as JsonRpcRequest, tools, serverName, instructions);
+      if (r) out.push(r);
+    }
     return out.length ? out : null;
   }
-  return handleOne(body as JsonRpcRequest, tools, serverName);
+  return handleOne(body as JsonRpcRequest, tools, serverName, instructions);
 }
