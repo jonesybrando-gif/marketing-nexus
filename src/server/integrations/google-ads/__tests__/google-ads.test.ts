@@ -232,8 +232,45 @@ describe("Local Services Ads (via Google Ads API)", () => {
   it("splits LOCAL_SERVICES campaigns between the two platforms", async () => {
     const { campaignsQuery } = await import("../gaql");
     expect(dailyPerformanceQuery("2026-10-01", "2026-10-02")).toContain("campaign.advertising_channel_type != 'LOCAL_SERVICES'");
-    expect(dailyPerformanceQuery("2026-10-01", "2026-10-02", "LOCAL_SERVICES")).toContain("campaign.advertising_channel_type = 'LOCAL_SERVICES'");
-    expect(campaignsQuery("LOCAL_SERVICES")).toContain("= 'LOCAL_SERVICES'");
+    expect(dailyPerformanceQuery("2026-10-01", "2026-10-02", "LOCAL_SERVICES")).toContain("campaign.advertising_channel_type IN ('LOCAL_SERVICES', 'PERFORMANCE_MAX')");
+    expect(campaignsQuery("LOCAL_SERVICES")).toContain("IN ('LOCAL_SERVICES', 'PERFORMANCE_MAX')");
+    expect(campaignsQuery("ADS")).toContain("campaign.advertising_channel_type,");
+  });
+
+  it("counts pay-per-lead PMax campaigns as Local Services, and only there", async () => {
+    const { isInScope, isPayPerLeadCampaign } = await import("../gaql");
+    expect(isPayPerLeadCampaign("PERFORMANCE_MAX", "Pay-per-lead-PMax-Junk South")).toBe(true);
+    expect(isPayPerLeadCampaign("PERFORMANCE_MAX", "pay per lead pmax")).toBe(true);
+    expect(isPayPerLeadCampaign("PERFORMANCE_MAX", "PMax - Products")).toBe(false);
+    expect(isPayPerLeadCampaign("SEARCH", "Pay-per-lead-PMax-Junk South")).toBe(false);
+    expect(isInScope("LOCAL_SERVICES", "LOCAL_SERVICES", "LocalServicesCampaign:SystemGenerated:1")).toBe(true);
+    expect(isInScope("LOCAL_SERVICES", "PERFORMANCE_MAX", "Pay-per-lead-PMax-Amazon Cleaning")).toBe(true);
+    expect(isInScope("LOCAL_SERVICES", "PERFORMANCE_MAX", "PMax - Products")).toBe(false);
+    expect(isInScope("ADS", "PERFORMANCE_MAX", "Pay-per-lead-PMax-Amazon Cleaning")).toBe(false);
+    expect(isInScope("ADS", "PERFORMANCE_MAX", "PMax - Products")).toBe(true);
+    expect(isInScope("ADS", "SEARCH", "Search")).toBe(true);
+  });
+
+  it("imports pay-per-lead PMax cost and leads on the LSA platform, not on Google Ads", async () => {
+    const rows = [
+      { campaign: { id: "15781662183", name: "LocalServicesCampaign:SystemGenerated:0005d4e9783b646a", status: "PAUSED", advertisingChannelType: "LOCAL_SERVICES" }, segments: { date: "2026-11-03" }, metrics: { costMicros: "40000000" } },
+      { campaign: { id: "24425931984", name: "Pay-per-lead-PMax-Junk South", status: "ENABLED", advertisingChannelType: "PERFORMANCE_MAX" }, segments: { date: "2026-11-05" }, metrics: { costMicros: "60000000" } },
+      { campaign: { id: "999", name: "PMax - Brand", status: "ENABLED", advertisingChannelType: "PERFORMANCE_MAX" }, segments: { date: "2026-11-05" }, metrics: { costMicros: "10000000" } },
+    ];
+    const leads = [{ localServicesLead: { id: "9", campaign: "customers/2165633776/campaigns/24425931984", leadType: "PHONE_CALL", leadCharged: true, creationDateTime: "2026-11-05 10:00:00" } }];
+    const fn = async (_url: string, init?: RequestInit) => {
+      const q: string = JSON.parse(String(init!.body)).query;
+      return new Response(JSON.stringify([{ results: q.includes("FROM local_services_lead") ? leads : rows }]));
+    };
+    const lsa = await createGoogleAdsAdapter({ config, fetch: fn, localServices: true }).fetchDailyPerformance("tok", { externalId: "2165633776" }, "2026-11-01", "2026-11-15");
+    const ppl = lsa.rows.find((r) => r.campaignExternalId === "24425931984")!;
+    expect(ppl).toMatchObject({ costMinor: 6000, leads: 1, conversions: 1 });
+    expect(lsa.rows.reduce((s, r) => s + r.costMinor, 0)).toBe(10000);
+    expect(lsa.campaigns.map((c) => c.name)).toContain("Pay-per-lead-PMax-Junk South");
+    expect(lsa.campaigns.map((c) => c.externalId)).not.toContain("999");
+
+    const ads = await createGoogleAdsAdapter({ config, fetch: fn }).fetchDailyPerformance("tok", { externalId: "2165633776" }, "2026-11-01", "2026-11-15");
+    expect(ads.rows.map((r) => r.campaignExternalId)).toEqual(["999"]);
   });
 
   const leadRows = [
@@ -255,7 +292,7 @@ describe("Local Services Ads (via Google Ads API)", () => {
         return new Response(JSON.stringify([{ results: leadRows }]));
       }
       const metrics = costMicros ? { costMicros } : {};
-      return new Response(JSON.stringify([{ results: [{ campaign: { id: "77", name: "LSA – Plumbing", status: "ENABLED" }, segments: { date: "2026-10-15" }, metrics }] }]));
+      return new Response(JSON.stringify([{ results: [{ campaign: { id: "77", name: "LSA – Plumbing", status: "ENABLED", advertisingChannelType: "LOCAL_SERVICES" }, segments: { date: "2026-10-15" }, metrics }] }]));
     };
     return { fn, queries };
   }

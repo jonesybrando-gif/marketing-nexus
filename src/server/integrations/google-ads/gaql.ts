@@ -58,15 +58,41 @@ FROM customer_client
 WHERE customer_client.status = 'ENABLED'`.trim();
 
 /**
- * Local Services campaigns (advertising_channel_type LOCAL_SERVICES) are
- * reported under the separate "Google LSA" platform, so the Google Ads
- * queries exclude them and the LSA queries select only them. Each campaign's
- * cost therefore lands in exactly one platform.
+ * Local Services campaigns are reported under the separate "Google LSA"
+ * platform, so the Google Ads queries exclude them and the LSA queries select
+ * only them. Each campaign's cost therefore lands in exactly one platform.
+ *
+ * "Local Services" means advertising_channel_type LOCAL_SERVICES, plus the
+ * Performance Max campaigns Google creates when it moves an LSA listing to
+ * pay-per-lead ("Pay-per-lead-PMax-<business>"). Those report as
+ * PERFORMANCE_MAX but are the listing's lead campaign: its local_services_lead
+ * rows point at them, and their cost is the LSA spend. GAQL has no OR, so the
+ * queries narrow by channel type and isInScope() makes the final call.
  */
 export type CampaignScope = "ADS" | "LOCAL_SERVICES";
 
+const PAY_PER_LEAD_NAME = /^pay[\s_-]*per[\s_-]*lead/i;
+
+/** True for the PMax campaign behind a pay-per-lead Local Services listing. */
+export function isPayPerLeadCampaign(channelType: string | undefined, name: string | undefined): boolean {
+  return channelType === "PERFORMANCE_MAX" && !!name && PAY_PER_LEAD_NAME.test(name.trim());
+}
+
+/** Whether a row with this channel type and campaign name belongs to the scope. */
+export function isInScope(scope: CampaignScope, channelType: string | undefined, name: string | undefined): boolean {
+  const lsa = channelType === "LOCAL_SERVICES" || isPayPerLeadCampaign(channelType, name);
+  return scope === "LOCAL_SERVICES" ? lsa : !lsa;
+}
+
 const channelFilter = (scope: CampaignScope) =>
-  scope === "LOCAL_SERVICES" ? "campaign.advertising_channel_type = 'LOCAL_SERVICES'" : "campaign.advertising_channel_type != 'LOCAL_SERVICES'";
+  scope === "LOCAL_SERVICES"
+    ? "campaign.advertising_channel_type IN ('LOCAL_SERVICES', 'PERFORMANCE_MAX')"
+    : "campaign.advertising_channel_type != 'LOCAL_SERVICES'";
+
+/** Keeps only the rows isInScope() assigns to this scope. */
+export function filterToScope<R extends { campaign?: { name?: string; advertisingChannelType?: string } }>(rows: R[], scope: CampaignScope): R[] {
+  return rows.filter((r) => isInScope(scope, r.campaign?.advertisingChannelType, r.campaign?.name));
+}
 
 export function campaignsQuery(scope: CampaignScope = "ADS"): string {
   return `
@@ -74,6 +100,7 @@ SELECT
   campaign.id,
   campaign.name,
   campaign.status,
+  campaign.advertising_channel_type,
   campaign_budget.id,
   campaign_budget.amount_micros,
   campaign_budget.period
@@ -99,6 +126,7 @@ SELECT
   campaign.id,
   campaign.name,
   campaign.status,
+  campaign.advertising_channel_type,
   segments.date,
   metrics.cost_micros,
   metrics.impressions,
@@ -220,7 +248,7 @@ export function parseCustomerClients(rows: CustomerClientRow[], queriedCustomerI
 }
 
 export interface CampaignRow {
-  campaign?: { id?: string; name?: string; status?: string };
+  campaign?: { id?: string; name?: string; status?: string; advertisingChannelType?: string };
   campaignBudget?: { id?: string; amountMicros?: string; period?: string };
 }
 
@@ -253,7 +281,7 @@ function googleBudget(b: CampaignRow["campaignBudget"]): Pick<RemoteCampaign, "d
 }
 
 export interface PerformanceRow {
-  campaign?: { id?: string; name?: string; status?: string };
+  campaign?: { id?: string; name?: string; status?: string; advertisingChannelType?: string };
   segments?: { date?: string };
   metrics?: {
     costMicros?: string;
