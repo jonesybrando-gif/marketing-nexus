@@ -104,3 +104,31 @@ describe("underspend advice is not pure arithmetic (H6)", () => {
     expect(a.detail).toContain("Reduce average daily spend");
   });
 });
+
+describe("recommendation verb follows the sign of the change", () => {
+  it("says Reduce, not Increase, when an under forecast needs less daily spend (Shouhed, Nov 18)", () => {
+    const a = recommendAction({
+      ...base,
+      status: "SLIGHTLY_UNDER",
+      forecastStatus: "UNDERSPENDING",
+      projectedVarianceMinor: -100000,
+      currentDailyRateMinor: 50442,
+      requiredDailyMinor: 44913,
+      remainingActiveDays: 12,
+    });
+    expect(a.detail).toContain("Reduce average daily spend from ≈$504 to ≈$449");
+    expect(a.detail).not.toContain("Increase");
+    expect(a.detail).toContain("the recent daily rate is already above what is needed");
+  });
+  it("says Increase and notes the disagreement when an over line has slowed below the needed rate", () => {
+    const a = recommendAction({
+      ...base,
+      status: "SLIGHTLY_OVER",
+      projectedVarianceMinor: 20000,
+      currentDailyRateMinor: 10000,
+      requiredDailyMinor: 12000,
+    });
+    expect(a.detail).toContain("Increase average daily spend from ≈$100 to ≈$120");
+    expect(a.detail).toContain("Spend so far is ahead of plan");
+  });
+});

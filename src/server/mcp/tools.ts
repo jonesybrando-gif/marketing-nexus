@@ -62,6 +62,7 @@ export function pacingSummary(r: Omit<PacingResult, "series"> | PacingResult | n
     status: r.status,
     forecastStatus: r.forecastStatus,
     forecastModel: r.forecastModel,
+    platformMonthlyCap: major(r.platformSpendCapMinor),
     currentDailyRate: major(r.currentDailyRateMinor),
     requiredDaily: major(r.requiredDailyMinor),
     recommendedDailyChange: major(r.recommendedDailyChangeMinor),

@@ -46,26 +46,45 @@ describe("computePacing with a platform spend cap", () => {
     dailySpend: Object.fromEntries(eachDay("2026-11-01", "2026-11-04").map((d) => [d, usd(518)])),
   };
 
-  it("projects a straight-line overspend without a cap", () => {
-    expect(computePacing(input).projectedMinor).toBe(usd(518 * 30));
+  it("projects a straight line without a cap", () => {
+    const r = computePacing(input);
+    expect(r.projectedMinor).toBe(usd(518 * 30));
+    expect(r.platformSpendCapMinor).toBeNull();
   });
 
-  it("never projects above what the platform can bill", () => {
+  it("reports the cap but never applies it to a STRAIGHT_LINE forecast", () => {
     const r = computePacing({ ...input, spendCapMinor: usd(14500) });
-    expect(r.projectedMinor).toBe(usd(14500));
-    expect(r.projectedVarianceMinor).toBe(0);
-    expect(r.forecastStatus).not.toBe("OVERSPENDING");
-    // The chart's projected line ends where the forecast does.
-    expect(r.series[r.series.length - 1].projectedCumulative).toBe(usd(14500));
+    expect(r.forecastModel).toBe("STRAIGHT_LINE");
+    expect(r.projectedMinor).toBe(usd(518 * 30));
+    expect(r.platformSpendCapMinor).toBe(usd(14500));
+    expect(r.series[r.series.length - 1].projectedCumulative).toBe(usd(518 * 30));
   });
 
-  it("does not raise an underspend forecast to the cap", () => {
-    const low = { ...input, dailySpend: Object.fromEntries(eachDay("2026-11-01", "2026-11-04").map((d) => [d, usd(100)])) };
-    expect(computePacing({ ...low, spendCapMinor: usd(14500) }).projectedMinor).toBe(usd(3000));
+  it("does not move the forecast when only the platform daily budget changes", () => {
+    const before = computePacing({ ...input, spendCapMinor: Math.round(usd(444.24) * 30.4) });
+    const after = computePacing({ ...input, spendCapMinor: Math.round(usd(405) * 30.4) });
+    expect(after.projectedMinor).toBe(before.projectedMinor);
+    expect(after.forecastStatus).toBe(before.forecastStatus);
   });
+});
 
-  it("never projects below what is already spent", () => {
-    const r = computePacing({ ...input, spendCapMinor: usd(1000) });
-    expect(r.projectedMinor).toBe(usd(518 * 4));
+describe("Dr. Shouhed, Nov 2026 as of Nov 18 (campaign-level lines)", () => {
+  // Spend through Nov 18; budgets set so the required daily matches what Nexus reported.
+  const line = (spent: number, requiredDaily: number, dailyBudget: number) =>
+    computePacing({
+      periodStart: "2026-11-01",
+      periodEnd: "2026-11-30",
+      asOf: "2026-11-18",
+      revisions: [{ effectiveDate: "2026-11-01", amountMinor: usd(spent + requiredDaily * 12) }],
+      dailySpend: { "2026-11-18": usd(spent) },
+      spendCapMinor: Math.round(usd(dailyBudget) * 30.4),
+    });
+
+  it("projects spentToDate / 18 x 30 for each campaign line, whatever the daily budget", () => {
+    expect(line(7500.51, 50, 340).projectedMinor).toBe(usd(12500.85));
+    const gb = line(1609.93, 74.17, 65);
+    expect(gb.projectedMinor).toBe(usd(2683.22));
+    expect(gb.status).toBe("SLIGHTLY_OVER");
+    expect(gb.forecastStatus).toBe("SLIGHTLY_OVER");
   });
 });
