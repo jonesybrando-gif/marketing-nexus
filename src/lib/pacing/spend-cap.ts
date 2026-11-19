@@ -1,18 +1,17 @@
 import { addDays, type IsoDate } from "./dates";
 
-/** Google Ads bills a campaign at most this many times its average daily budget in a calendar month. */
-export const GOOGLE_MONTHLY_DAILY_MULTIPLIER = 30.4;
-
 /**
- * The most Google Ads can bill for a budget line this month, from the campaigns'
- * current daily budgets. Only for a whole calendar month on Google Ads (search,
- * not LSA) where every enabled campaign in scope has a known daily budget;
- * otherwise undefined and the forecast is left uncapped.
+ * Combined current daily budget of the enabled campaigns behind a budget line,
+ * used to work out the most Google Ads can still bill this month:
+ * spend so far + this daily budget × days left (see computePacing). Only for a
+ * whole calendar month on Google Ads (search, not LSA) where every enabled
+ * campaign in scope has a known daily budget; otherwise undefined and no cap is
+ * reported.
  *
  * Retired accounts (monitored: false) are ignored; their campaigns should not be
  * passed in.
  */
-export function googleAdsSpendCap(
+export function googleAdsDailyBudget(
   periodStart: IsoDate,
   periodEnd: IsoDate,
   accounts: { platform: string; monitored: boolean }[],
@@ -26,5 +25,5 @@ export function googleAdsSpendCap(
   const enabled = campaigns.filter((c) => c.status === "ENABLED");
   if (enabled.length === 0 || enabled.some((c) => c.platformDailyBudgetMinor === null)) return undefined;
   const daily = enabled.reduce((s, c) => s + Number(c.platformDailyBudgetMinor), 0);
-  return Math.round(daily * GOOGLE_MONTHLY_DAILY_MULTIPLIER);
+  return Math.round(daily);
 }

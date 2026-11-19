@@ -10,7 +10,7 @@ import { resolveBudgetHierarchy, spendForUnit, spendOutsideCampaignBudgets, type
 import { DEFAULT_THRESHOLDS, needsAttention, type PacingThresholds } from "@/lib/pacing/status";
 import { recommendAction, type Action } from "@/lib/action-center";
 import { isNotConnected } from "@/lib/pacing/connection";
-import { googleAdsSpendCap } from "@/lib/pacing/spend-cap";
+import { googleAdsDailyBudget } from "@/lib/pacing/spend-cap";
 import { formatDate } from "@/lib/time";
 import { formatMoney } from "@/lib/money";
 import type { PlatformKey } from "@/lib/platforms";
@@ -201,7 +201,7 @@ function paceUnit(unit: PacingUnit, budget: BudgetWithRevisions, ctx: UnitContex
     pauses: (budget.pauses as DateRange[] | null) ?? undefined,
     forecastModel: budget.forecastModel,
     thresholds: ctx.thresholds,
-    spendCapMinor: googleAdsSpendCap(
+    platformDailyBudgetMinor: googleAdsDailyBudget(
       periodStart,
       periodEnd,
       accts,
@@ -212,7 +212,7 @@ function paceUnit(unit: PacingUnit, budget: BudgetWithRevisions, ctx: UnitContex
   });
   if (result.phase === "ACTIVE" && result.platformSpendCapMinor !== null && result.projectedMinor > result.platformSpendCapMinor) {
     warnings.push(
-      `Straight-line forecast (${formatMoney(result.projectedMinor, budget.currency, { whole: true })}) is above what Google Ads can bill this month at the current daily budgets (≈${formatMoney(result.platformSpendCapMinor, budget.currency, { whole: true })}); actual month-end spend may land lower`,
+      `Straight-line forecast (${formatMoney(result.projectedMinor, budget.currency, { whole: true })}) is above what Google Ads can bill this month (≈${formatMoney(result.platformSpendCapMinor, budget.currency, { whole: true })}: spend so far plus the current daily budgets for the ${result.remainingDays} remaining day${result.remainingDays === 1 ? "" : "s"}); actual month-end spend may land lower`,
     );
   }
   const unitCampaigns = scopeCampaigns(ctx, unit.scope === "CAMPAIGN" ? unit.campaignIds : null, live.length ? live : accts);

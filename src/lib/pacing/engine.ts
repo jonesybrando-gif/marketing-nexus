@@ -43,13 +43,13 @@ export interface PacingInput {
   forecastModel?: ForecastModel;
   thresholds?: PacingThresholds;
   /**
-   * Most the ad platform can charge in the whole period, when known (e.g. Google
-   * Ads bills at most 30.4 × the daily budget in a calendar month). Informational
-   * only: it is returned as `platformSpendCapMinor` and never changes the
-   * forecast. STRAIGHT_LINE must stay spentToDate ÷ elapsed × total, so a
-   * daily-budget change with no new spend data cannot move it.
+   * Current combined daily budget on the ad platform, when known. Used only to
+   * report the most the platform can still bill this period
+   * (`platformSpendCapMinor` = spend to date + this × remaining days); it never
+   * changes the forecast. STRAIGHT_LINE stays spentToDate ÷ elapsed × total, so
+   * a daily-budget change with no new spend data cannot move it.
    */
-  spendCapMinor?: number;
+  platformDailyBudgetMinor?: number;
 }
 
 export interface PacingSeriesPoint {
@@ -93,7 +93,10 @@ export interface PacingResult {
   projectedMinor: number;
   projectedVarianceMinor: number;
   forecastModel: ForecastModel;
-  /** Most the platform can bill this period at current daily budgets, when known. Never applied to the forecast. */
+  /**
+   * Most the platform can still bill this period: spend to date + current daily
+   * budget × remaining days, when the daily budget is known. Never applied to the forecast.
+   */
   platformSpendCapMinor: number | null;
   totalDays: number;
   elapsedDays: number;
@@ -231,7 +234,9 @@ export function computePacing(input: PacingInput): PacingResult {
   // The platform spend cap is reported, not applied: the forecast is labelled
   // with its model and must follow that model's formula exactly.
   const platformSpendCapMinor =
-    input.spendCapMinor !== undefined && input.spendCapMinor >= 0 ? round(input.spendCapMinor) : null;
+    input.platformDailyBudgetMinor !== undefined && input.platformDailyBudgetMinor >= 0
+      ? round(actualToDate + input.platformDailyBudgetMinor * remainingDays)
+      : null;
 
   // --- Status --------------------------------------------------------------
   let pacingPct: number | null = null;
