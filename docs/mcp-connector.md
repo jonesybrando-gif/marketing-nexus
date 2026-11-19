@@ -22,6 +22,7 @@ Set `MCP_READ_ONLY=true` to switch the write tools off and go back to read-only.
 
 | Tool | What it changes |
 |---|---|
+| `create_client` | Adds a new client (name, timezone, optional account manager and labels), like the app's New client form. Refuses a name that already exists. |
 | `set_budget` | Creates a whole-month pacing budget (client, account or campaign level), or adds a revision if one already covers the month. Repeats monthly by default. |
 | `delete_budget` | Deletes one budget (needs `confirm: true`) and stops last month's matching budget from re-creating it |
 | `set_campaign_included` | Includes or leaves out a campaign from a client's reports, pacing and alerts |
