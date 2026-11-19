@@ -12,6 +12,7 @@ import { recommendAction, type Action } from "@/lib/action-center";
 import { isNotConnected } from "@/lib/pacing/connection";
 import { googleAdsSpendCap } from "@/lib/pacing/spend-cap";
 import { formatDate } from "@/lib/time";
+import { formatMoney } from "@/lib/money";
 import type { PlatformKey } from "@/lib/platforms";
 import { rollForwardBudgets } from "./budget-rollover";
 import { currentDailyBudget, type CurrentDailyBudget } from "@/lib/pacing/daily-budget";
@@ -209,6 +210,11 @@ function paceUnit(unit: PacingUnit, budget: BudgetWithRevisions, ctx: UnitContex
         .filter((c) => (unit.scope === "CAMPAIGN" ? unit.campaignIds.includes(c.id) : live.some((a) => a.id === c.accountId))),
     ),
   });
+  if (result.phase === "ACTIVE" && result.platformSpendCapMinor !== null && result.projectedMinor > result.platformSpendCapMinor) {
+    warnings.push(
+      `Straight-line forecast (${formatMoney(result.projectedMinor, budget.currency, { whole: true })}) is above what Google Ads can bill this month at the current daily budgets (≈${formatMoney(result.platformSpendCapMinor, budget.currency, { whole: true })}); actual month-end spend may land lower`,
+    );
+  }
   const unitCampaigns = scopeCampaigns(ctx, unit.scope === "CAMPAIGN" ? unit.campaignIds : null, live.length ? live : accts);
   const latestSpendMinor = latestSpend(spendForUnit(unit, ctx.rows), periodStart, periodEnd, addDays(ctx.yesterday, 1));
   const hasEstimatedSpend = ctx.rows.some(

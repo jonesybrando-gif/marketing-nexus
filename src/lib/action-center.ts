@@ -36,6 +36,9 @@ export interface Action {
 
 const money = (m: number, c: string) => formatMoney(Math.abs(m), c, { whole: true });
 
+/** "Reduce" when the needed daily spend is below the current rate, "Increase" when above. */
+const changeVerb = (requiredMinor: number, currentMinor: number) => (requiredMinor < currentMinor ? "Reduce" : "Increase");
+
 /**
  * Turns a pacing result into a concrete recommendation. Recommendations are
  * advisory only — the application never changes platform budgets itself.
@@ -80,10 +83,15 @@ export function recommendAction(a: ActionInput): Action {
           detail: `Pause or sharply reduce spend for the remaining ${days} ${dayWord}.${staleNote}`,
         };
       }
+      // The verb follows the sign of (required − current), never the status alone.
+      const conflict =
+        req > a.currentDailyRateMinor
+          ? " Spend so far is ahead of plan, but the recent daily rate is already below what the remaining budget allows."
+          : "";
       return {
         severity,
         headline: `Projected to overspend by ${money(a.projectedVarianceMinor, a.currency)}`,
-        detail: `Reduce average daily spend from ≈${money(a.currentDailyRateMinor, a.currency)} to ≈${money(req, a.currency)} for the remaining ${days} ${dayWord}.${why}${staleNote}`,
+        detail: `${changeVerb(req, a.currentDailyRateMinor)} average daily spend from ≈${money(a.currentDailyRateMinor, a.currency)} to ≈${money(req, a.currency)} for the remaining ${days} ${dayWord}.${conflict}${why}${staleNote}`,
       };
     }
     case "UNDERSPENDING":
@@ -91,6 +99,14 @@ export function recommendAction(a: ActionInput): Action {
       const severity: ActionSeverity = status === "UNDERSPENDING" ? "critical" : "warning";
       const headline = `Projected to underspend by ${money(a.projectedVarianceMinor, a.currency)}`;
       if (days <= 0) return { severity, headline, detail: `No planned days remain in this period.${staleNote}` };
+      if (req < a.currentDailyRateMinor) {
+        // Forecast says under, but the recent rate already exceeds what is needed: say so, and say Reduce.
+        return {
+          severity: "warning",
+          headline,
+          detail: `Reduce average daily spend from ≈${money(a.currentDailyRateMinor, a.currency)} to ≈${money(req, a.currency)} for the remaining ${days} ${dayWord}. The month-end forecast is under budget, but the recent daily rate is already above what is needed to land on it.${staleNote}`,
+        };
+      }
       return { severity, headline, detail: `${underspendAdvice(a.currentDailyRateMinor, req, a.currency, !!a.costPerResultHigh)}${why}${staleNote}` };
     }
     case "ON_TARGET":

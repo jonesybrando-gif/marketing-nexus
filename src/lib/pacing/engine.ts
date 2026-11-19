@@ -44,9 +44,10 @@ export interface PacingInput {
   thresholds?: PacingThresholds;
   /**
    * Most the ad platform can charge in the whole period, when known (e.g. Google
-   * Ads bills at most 30.4 × the daily budget in a calendar month). The forecast
-   * is never projected above it, so early-month over-delivery is not reported as
-   * an overspend the platform would never bill.
+   * Ads bills at most 30.4 × the daily budget in a calendar month). Informational
+   * only: it is returned as `platformSpendCapMinor` and never changes the
+   * forecast. STRAIGHT_LINE must stay spentToDate ÷ elapsed × total, so a
+   * daily-budget change with no new spend data cannot move it.
    */
   spendCapMinor?: number;
 }
@@ -92,6 +93,8 @@ export interface PacingResult {
   projectedMinor: number;
   projectedVarianceMinor: number;
   forecastModel: ForecastModel;
+  /** Most the platform can bill this period at current daily budgets, when known. Never applied to the forecast. */
+  platformSpendCapMinor: number | null;
   totalDays: number;
   elapsedDays: number;
   remainingDays: number;
@@ -225,12 +228,10 @@ export function computePacing(input: PacingInput): PacingResult {
     projected = elapsedDays > 0 ? (actualToDate / elapsedDays) * totalDays : actualToDate;
   }
 
-  // Never forecast more than the platform can bill (but never below what is already spent).
-  const uncappedRemaining = projected - actualToDate;
-  if (asOf && input.spendCapMinor !== undefined && input.spendCapMinor >= 0) {
-    projected = Math.min(projected, Math.max(input.spendCapMinor, actualToDate));
-  }
-  const projectionScale = uncappedRemaining > 0 ? (projected - actualToDate) / uncappedRemaining : 1;
+  // The platform spend cap is reported, not applied: the forecast is labelled
+  // with its model and must follow that model's formula exactly.
+  const platformSpendCapMinor =
+    input.spendCapMinor !== undefined && input.spendCapMinor >= 0 ? round(input.spendCapMinor) : null;
 
   // --- Status --------------------------------------------------------------
   let pacingPct: number | null = null;
@@ -272,7 +273,7 @@ export function computePacing(input: PacingInput): PacingResult {
     if (asOf && d === asOf) projectedPoint = actualToDate;
     if (asOf && d > asOf) {
       projectedCum += ratePerWeight !== null
-        ? ratePerWeight * weights.get(d)! * projectionScale
+        ? ratePerWeight * weights.get(d)!
         : (projected - actualToDate) / remainingDays;
       projectedPoint = projectedCum;
     }
@@ -304,6 +305,7 @@ export function computePacing(input: PacingInput): PacingResult {
     projectedMinor: round(projected),
     projectedVarianceMinor: round(projected) - budgetMinor,
     forecastModel,
+    platformSpendCapMinor,
     totalDays,
     elapsedDays,
     remainingDays,
@@ -386,6 +388,9 @@ export function combinePacing(results: PacingResult[], thresholds: PacingThresho
     forecastStatus,
     projectedMinor: projected,
     projectedVarianceMinor: projected - budgetMinor,
+    platformSpendCapMinor: results.every((r) => r.platformSpendCapMinor !== null)
+      ? sum((r) => r.platformSpendCapMinor ?? 0)
+      : null,
     elapsedDays: Math.min(...results.map((r) => r.elapsedDays)),
     remainingDays: Math.max(...results.map((r) => r.remainingDays)),
     remainingActiveDays: Math.max(...results.map((r) => r.remainingActiveDays)),
