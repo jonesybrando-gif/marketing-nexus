@@ -106,6 +106,19 @@ describe.skipIf(!hasDb)("MCP write tools (database)", () => {
     else process.env.MCP_AGENCY_SLUG = prevSlug;
   });
 
+  it("creates a client with labels and refuses a duplicate name", async () => {
+    const created = await call("create_client", { name: "  New  Brand ", timezone: "America/New_York", labels: ["Everest"] });
+    expect(created.isError).toBeFalsy();
+    expect(created.structuredContent).toMatchObject({ action: "created", client: "New Brand", timezone: "America/New_York", labels: ["Everest"] });
+    const row = await prisma.client.findFirstOrThrow({ where: { id: created.structuredContent.clientId as string }, include: { labels: true } });
+    expect(row.labels.map((l) => l.name)).toEqual(["Everest"]);
+    const dup = await call("create_client", { name: "new brand" });
+    expect(dup.isError).toBe(true);
+    expect(dup.content[0].text).toMatch(/already exists/);
+    const badTz = await call("create_client", { name: "Bad TZ", timezone: "Mars/Olympus" });
+    expect(badTz.isError).toBe(true);
+  });
+
   it("creates a campaign budget, then revises it instead of adding a second one", async () => {
     const created = await call("set_budget", { client: "Writes Client", level: "campaign", campaign_id: "23494454599", amount: 1000, month: "2026-11" });
     expect(created.isError).toBeFalsy();

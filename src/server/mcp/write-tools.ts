@@ -11,6 +11,7 @@ import { isWholeMonth } from "@/lib/budget-rollover";
 import { addDays, dateToIso, isoToDate, monthBounds, todayInTimeZone, type IsoDate } from "@/lib/pacing/dates";
 import { setCampaignIncluded, setIncludeNewCampaigns, CampaignSelectionError } from "../campaign-selection";
 import { linkAccountToClient, removeStoppedAccount, stopTrackingAccount } from "../client-accounts";
+import { findOrCreateLabel } from "../client-admin";
 import { getAdapter } from "../integrations/registry";
 import { withAccessToken } from "../integrations/tokens";
 import { IntegrationError } from "../integrations/errors";
@@ -170,6 +171,79 @@ async function listLinkableAccounts(args: Record<string, unknown>) {
     platform,
     note: connections.length ? "Accounts each saved login can reach. Link one with link_ad_account." : `No ${connPlatform} login is saved in Marketing Nexus. Connect one in the app (client > Ad accounts) first.`,
     logins: out,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Clients
+// ---------------------------------------------------------------------------
+
+function validTimeZone(tz: string): boolean {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Same as the app's "New client" form: name, timezone, optional account manager; plus optional labels. */
+async function createClientTool(args: Record<string, unknown>) {
+  const agencyId = await connectorAgencyId();
+  const name = typeof args.name === "string" ? args.name.trim().replace(/\s+/g, " ") : "";
+  if (!name) throw new ToolInputError("name is required.");
+  if (name.length > 120) throw new ToolInputError("name must be 120 characters or fewer.");
+  const timezone = typeof args.timezone === "string" && args.timezone.trim() ? args.timezone.trim() : "America/New_York";
+  if (!validTimeZone(timezone)) throw new ToolInputError(`timezone "${timezone}" isn't a valid IANA time zone (e.g. America/New_York).`);
+
+  const dup = await prisma.client.findFirst({ where: { agencyId, name: { equals: name, mode: "insensitive" } }, select: { id: true, archivedAt: true } });
+  if (dup) {
+    throw new ToolInputError(
+      dup.archivedAt ? `A removed client named "${name}" already exists. Restore it in the app (Clients > Removed clients) instead.` : `A client named "${name}" already exists (id ${dup.id}).`,
+    );
+  }
+
+  let managerId: string | null = null;
+  let managerName: string | null = null;
+  if (typeof args.manager === "string" && args.manager.trim()) {
+    const q = args.manager.trim();
+    const managers = await prisma.user.findMany({
+      where: { agencyId, role: "ACCOUNT_MANAGER", deactivatedAt: null, OR: [{ id: q }, { email: { equals: q, mode: "insensitive" } }, { name: { contains: q, mode: "insensitive" } }] },
+      select: { id: true, name: true },
+      take: 5,
+    });
+    if (managers.length === 0) throw new ToolInputError(`No active account manager matches "${q}". Omit manager to create the client without one.`);
+    if (managers.length > 1) throw new ToolInputError(`"${q}" matches several account managers: ${managers.map((m) => m.name).join("; ")}. Use their email.`);
+    managerId = managers[0].id;
+    managerName = managers[0].name;
+  }
+
+  const labelNames = Array.isArray(args.labels) ? args.labels.filter((l): l is string => typeof l === "string" && !!l.trim()).slice(0, 10) : [];
+  const labelIds: string[] = [];
+  for (const l of labelNames) labelIds.push(await findOrCreateLabel(agencyId, l));
+
+  const client = await prisma.client.create({
+    data: {
+      agencyId,
+      name,
+      timezone,
+      primaryManagerId: managerId,
+      assignments: managerId ? { create: [{ userId: managerId }] } : undefined,
+      labels: labelIds.length ? { connect: labelIds.map((id) => ({ id })) } : undefined,
+    },
+    select: { id: true, name: true, timezone: true, currency: true },
+  });
+  console.info(`[mcp] created client ${client.id} ${client.name}`);
+  return {
+    ok: true,
+    action: "created",
+    client: client.name,
+    clientId: client.id,
+    timezone: client.timezone,
+    currency: client.currency,
+    manager: managerName,
+    labels: labelNames,
+    note: "Next: link its ad accounts with link_ad_account, then set budgets with set_budget.",
   };
 }
 
@@ -408,6 +482,25 @@ export const MCP_LOOKUP_TOOLS: McpTool[] = [
 ];
 
 export const MCP_WRITE_TOOLS: McpTool[] = [
+  {
+    name: "create_client",
+    title: "Create a client",
+    description:
+      "Add a new client to Marketing Nexus (the app's New client form). Refuses a name that already exists. A client tracks one ad account per platform, so a business with several Google Ads accounts needs one client per account. Afterwards link accounts with link_ad_account and set budgets with set_budget.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Client name, up to 120 characters." },
+        timezone: { type: "string", description: 'IANA time zone used for pacing days, e.g. "America/New_York" (the default).' },
+        manager: { type: "string", description: "Optional: account manager's email, name or id, assigned as primary manager." },
+        labels: { type: "array", items: { type: "string" }, description: "Optional: label names to add; missing labels are created." },
+      },
+      required: ["name"],
+      additionalProperties: false,
+    },
+    annotations: { ...WRITE, idempotentHint: false },
+    handler: createClientTool,
+  },
   {
     name: "set_budget",
     title: "Set a budget",
