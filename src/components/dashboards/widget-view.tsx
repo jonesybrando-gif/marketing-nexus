@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import type { ReactNode } from "react";
+import { Fragment, type ReactNode } from "react";
 import { PlayCircle, Plug } from "lucide-react";
 import { formatMetric } from "@/lib/dashboards/metrics";
 import { widgetTitle } from "@/lib/dashboards/describe";
@@ -87,36 +87,53 @@ function WidgetBody({ widget, data, currency, staff }: { widget: DashboardWidget
           </TBody>
         </Table>
       );
-    case "rankings":
+    case "rankings": {
+      // One block per market when the client tracks several locations; device shown when both are tracked.
+      const locations = new Set(data.rows.map((r) => r.location ?? ""));
+      const devices = new Set(data.rows.map((r) => r.device ?? ""));
+      const grouped = locations.size > 1;
+      const showDevice = devices.size > 1;
+      const cols = 3 + (data.hasComparison ? 1 : 0) + (showDevice ? 1 : 0) + (grouped ? 0 : 1);
       return (
         <Table>
           <THead>
             <tr>
               <TH className="pl-4">Keyword</TH>
+              {!grouped && <TH>Location</TH>}
+              {showDevice && <TH>Device</TH>}
               <TH className="text-right">Position</TH>
               {data.hasComparison && <TH className="text-right">Change</TH>}
               <TH className="pr-4">Ranking page</TH>
             </tr>
           </THead>
           <TBody>
-            {data.rows.map((r) => {
+            {data.rows.map((r, i) => {
               const change = r.position !== null && r.previous !== null ? r.previous - r.position : null;
+              const newGroup = grouped && (i === 0 || data.rows[i - 1].location !== r.location);
               return (
-                <TR key={`${r.keyword}-${r.location ?? ""}`}>
-                  <TD className="max-w-64 truncate pl-4" title={r.keyword}>{r.keyword}{r.location && <span className="block text-xs text-text-3">{r.location}</span>}</TD>
-                  <TD className="text-right font-medium">{r.position === null ? "—" : r.position}</TD>
-                  {data.hasComparison && (
-                    <TD className={cn("text-right", change === null || change === 0 ? "text-text-3" : change > 0 ? "text-good-ink" : "text-critical-ink")}>
-                      {change === null ? (r.previous === null && r.position !== null ? "new" : "—") : change === 0 ? "0" : `${change > 0 ? "▲" : "▼"} ${Math.abs(change)}`}
-                    </TD>
+                <Fragment key={`${r.keyword}-${r.location ?? ""}-${r.device ?? ""}`}>
+                  {newGroup && (
+                    <tr className="bg-surface-2"><td colSpan={cols} className="px-4 py-1.5 text-xs font-semibold">{r.location || "Location not set"}</td></tr>
                   )}
-                  <TD className="max-w-64 truncate pr-4 text-xs text-text-3" title={r.url ?? undefined}>{r.url ? r.url.replace(/^https?:\/\/(www\.)?/, "") : "—"}</TD>
-                </TR>
+                  <TR>
+                    <TD className="max-w-64 truncate pl-4" title={r.keyword}>{r.keyword}</TD>
+                    {!grouped && <TD className="max-w-40 truncate text-xs text-text-2" title={r.location ?? undefined}>{r.location ?? "—"}</TD>}
+                    {showDevice && <TD className="text-xs capitalize text-text-2">{r.device ?? "—"}</TD>}
+                    <TD className="text-right font-medium">{r.position === null ? "—" : r.position}</TD>
+                    {data.hasComparison && (
+                      <TD className={cn("text-right", change === null || change === 0 ? "text-text-3" : change > 0 ? "text-good-ink" : "text-critical-ink")}>
+                        {change === null ? (r.previous === null && r.position !== null ? "new" : "—") : change === 0 ? "0" : `${change > 0 ? "▲" : "▼"} ${Math.abs(change)}`}
+                      </TD>
+                    )}
+                    <TD className="max-w-64 truncate pr-4 text-xs text-text-3" title={r.url ?? undefined}>{r.url ? r.url.replace(/^https?:\/\/(www\.)?/, "") : "—"}</TD>
+                  </TR>
+                </Fragment>
               );
             })}
           </TBody>
         </Table>
       );
+    }
     case "calllog":
       return <CallLog rows={data.rows} total={data.total} timeZone={data.timeZone} />;
     case "formlog":

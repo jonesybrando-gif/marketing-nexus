@@ -5,6 +5,8 @@ import "server-only";
 // header and never logged or included in error messages.
 
 export const DFS_BASE = "https://api.dataforseo.com/v3";
+/** API root; DATAFORSEO_API_BASE=https://sandbox.dataforseo.com/v3 points everything at the free sandbox (tests). */
+export const dfsBase = () => process.env.DATAFORSEO_API_BASE?.replace(/\/$/, "") || DFS_BASE;
 
 export type FetchLike = typeof fetch;
 
@@ -31,7 +33,7 @@ export interface DfsTask<R = unknown> {
   result: R[] | null;
 }
 
-interface DfsResponse<R> {
+export interface DfsResponse<R> {
   status_code: number;
   status_message: string;
   tasks?: DfsTask<R>[];
@@ -41,10 +43,10 @@ function authHeader(secret: string) {
   return `Basic ${Buffer.from(secret, "utf8").toString("base64")}`;
 }
 
-async function call<R>(secret: string, path: string, init: { method: "GET" | "POST"; body?: unknown }, fetchImpl: FetchLike = fetch): Promise<DfsResponse<R>> {
+export async function call<R>(secret: string, path: string, init: { method: "GET" | "POST"; body?: unknown }, fetchImpl: FetchLike = fetch): Promise<DfsResponse<R>> {
   let res: Response;
   try {
-    res = await fetchImpl(`${DFS_BASE}${path}`, {
+    res = await fetchImpl(`${dfsBase()}${path}`, {
       method: init.method,
       headers: { Authorization: authHeader(secret), "Content-Type": "application/json" },
       body: init.body === undefined ? undefined : JSON.stringify(init.body),
@@ -129,4 +131,21 @@ export async function getSerpTask(secret: string, id: string, fetchImpl?: FetchL
   const t = r.tasks?.[0];
   if (!t) throw new DataForSeoError(`DataForSEO returned no task for ${id}.`);
   return t;
+}
+
+export interface DfsLocation {
+  location_code: number;
+  location_name: string;
+  location_code_parent: number | null;
+  country_iso_code: string;
+  location_type: string;
+}
+
+/** GET /v3/serp/google/locations/{country}: every Google location in one country (free). */
+export async function getSerpLocations(secret: string, countryIso: string, fetchImpl?: FetchLike): Promise<DfsLocation[]> {
+  if (!/^[a-z]{2}$/i.test(countryIso)) throw new Error("Country must be a two-letter ISO code");
+  const r = await call<DfsLocation>(secret, `/serp/google/locations/${countryIso.toLowerCase()}`, { method: "GET" }, fetchImpl);
+  const t = r.tasks?.[0];
+  if (!t || t.status_code !== 20000) throw new DataForSeoError(`DataForSEO error ${t?.status_code ?? r.status_code}: ${t?.status_message ?? r.status_message}`, t?.status_code);
+  return (t.result ?? []).filter((l): l is DfsLocation => !!l && typeof l.location_code === "number" && typeof l.location_name === "string");
 }

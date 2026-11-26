@@ -1,6 +1,8 @@
 import { requireAgencyStaff } from "@/server/access";
 import { prisma } from "@/server/db";
 import { agencyDataForSeoConnection, dataForSeoBalance, formatUsd } from "@/server/data-sources/dataforseo/account";
+import { serpCheckPriceUsd } from "@/server/data-sources/dataforseo/pricing";
+import { rankCostEstimate } from "@/lib/rankings";
 import { relativeTime } from "@/lib/time";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -19,12 +21,15 @@ export async function DataForSeoCard() {
   const conn = await agencyDataForSeoConnection(user.agencyId);
   const [projects, keywords, failing, lastSync, { balance, error }] = await Promise.all([
     conn ? prisma.dataAsset.count({ where: { connectionId: conn.id, kind: "RANK_PROJECT" } }) : 0,
-    conn ? prisma.trackedKeyword.count({ where: { active: true, asset: { connectionId: conn.id } } }) : 0,
+    // Tracked items = keyword × location × device, in projects that aren't paused.
+    conn ? prisma.trackedKeyword.count({ where: { active: true, asset: { connectionId: conn.id, kind: "RANK_PROJECT", status: { not: "DISCONNECTED" } } } }) : 0,
     conn ? prisma.dataAsset.findFirst({ where: { connectionId: conn.id, lastError: { not: null } }, select: { lastError: true } }) : null,
     conn ? prisma.dataAsset.aggregate({ where: { connectionId: conn.id }, _max: { lastSuccessfulSyncAt: true } }) : null,
     dataForSeoBalance(conn),
   ]);
   const badge = conn ? STATUS[conn.status] ?? STATUS.PENDING_APPROVAL : null;
+  const price = serpCheckPriceUsd();
+  const monthly = rankCostEstimate(keywords, price).perMonth;
   return (
     <Card>
       <CardHeader>
@@ -34,7 +39,7 @@ export async function DataForSeoCard() {
         </div>
         <CardDescription>
           Exact daily Google positions for each client&apos;s keywords, checked once a day through the official DataForSEO SERP API (Standard queue,
-          about $0.0006 per keyword check, billed by DataForSEO). Set up keywords per client under Setup → Keyword rankings.
+          about {formatUsd(price, 4)} per check, billed by DataForSEO). Each keyword is tracked per location and device. Set up keywords per client under Setup → Keyword rankings.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-3 text-sm">
@@ -49,7 +54,7 @@ export async function DataForSeoCard() {
               )}
             </div>
             <p className="mt-1 text-xs text-text-2">
-              {projects} client{projects === 1 ? "" : "s"} · {keywords} keyword check{keywords === 1 ? "" : "s"} per day · last successful check {relativeTime(lastSync?._max.lastSuccessfulSyncAt?.toISOString() ?? null)}
+              {projects} client{projects === 1 ? "" : "s"} · {keywords} tracked item{keywords === 1 ? "" : "s"} (keyword × location × device), {keywords} check{keywords === 1 ? "" : "s"} per day ≈ {formatUsd(monthly)}/month · last successful check {relativeTime(lastSync?._max.lastSuccessfulSyncAt?.toISOString() ?? null)}
             </p>
             {error && <p className="mt-1 text-xs text-warning-ink">Couldn&apos;t read the balance: {error}</p>}
             {conn.lastError && conn.status !== "ACTIVE" && <p className="mt-1 text-xs text-critical-ink">{conn.lastError}</p>}

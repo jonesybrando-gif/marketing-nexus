@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { domainMatches, normalizeDomain, parseKeywordList, rankCostEstimate, type PendingRankTask, type RankTaskError } from "@/lib/rankings";
+import { domainMatches, normalizeDomain, parseKeywordList, rankCostEstimate, trackedItemCount, type PendingRankTask, type RankTaskError } from "@/lib/rankings";
 import { METRIC_BY_KEY } from "@/lib/metrics-registry";
 import { aggregateMetric } from "@/lib/metrics-registry/aggregate";
 import { chunk, dueKeywords, parseSerpResult, runRankSync, summaryMetrics, type ParsedRank, type RankKeyword, type RankStore } from "../core";
@@ -109,8 +109,9 @@ describe("helpers", () => {
   it("parses pasted keyword lists", () => {
     expect(parseKeywordList(" Dentist  Near Me \n\ndentist near me\r\nemergency dentist, invisalign ")).toEqual(["dentist near me", "emergency dentist", "invisalign"]);
   });
-  it("estimates cost per keyword check", () => {
-    expect(rankCostEstimate(100, "both")).toEqual({ checksPerDay: 200, perDay: 200 * 0.0006, perMonth: 200 * 0.0006 * 30 });
+  it("estimates cost per tracked item at the configured price", () => {
+    expect(rankCostEstimate(trackedItemCount(100, "both"))).toEqual({ checksPerDay: 200, perDay: 200 * 0.0006, perMonth: 200 * 0.0006 * 30 });
+    expect(rankCostEstimate(10, 0.001).perMonth).toBeCloseTo(0.3);
   });
   it("skips keywords already checked today or pending today", () => {
     const ks = [kw(1), kw(2), kw(3)];

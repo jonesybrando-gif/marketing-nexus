@@ -13,7 +13,10 @@ export interface KeywordRankRow {
   previous: number | null;
   url?: string | null;
   searchVolume?: number | null;
+  /** Where the searcher is, e.g. "Dublin, California" (rank tracking is per location). */
   location?: string | null;
+  /** "desktop" | "mobile". */
+  device?: string | null;
 }
 
 /** One call in a call log widget (CallRail). */

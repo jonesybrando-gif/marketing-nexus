@@ -773,16 +773,35 @@ model TrackedKeyword {
   keyword      String
   /// DataForSEO location code (e.g. 2840 = United States) and language.
   locationCode Int      @default(2840)
+  /// Display name of the location, e.g. "Dublin, California, United States".
+  locationName String?
   languageCode String   @default("en")
   device       String   @default("desktop") // "desktop" | "mobile"
   targetDomain String
+  /// Checked daily. False = paused (archivedAt null) or archived.
   active       Boolean  @default(true)
+  /// Replaced (location or device changed) or put away: hidden from tables, history kept.
+  archivedAt   DateTime?
   createdAt    DateTime @default(now())
 
   ranks KeywordRank[]
 
   @@unique([assetId, keyword, locationCode, device])
   @@index([clientId])
+}
+
+/// DataForSEO's Google locations list (cities, counties, DMAs, states, ZIPs),
+/// cached per country for the rank tracking location search. Free to fetch.
+model RankLocation {
+  code        Int      @id
+  /// DataForSEO form, e.g. "Dublin,California,United States".
+  name        String
+  type        String
+  countryIso  String
+  parentCode  Int?
+  updatedAt   DateTime @updatedAt
+
+  @@index([countryIso, type])
 }
 
 model KeywordRank {

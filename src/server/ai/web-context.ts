@@ -88,7 +88,8 @@ export async function webContextFor(
         movers: [...moved]
           .sort((a, b) => Math.abs(b.change!) - Math.abs(a.change!))
           .slice(0, MAX_MOVERS)
-          .map((r) => ({ keyword: r.keyword, position: r.position, change: -r.change! })),
+          // Name the market when keywords are tracked in several locations ("reptile party (Dublin, California)").
+          .map((r) => ({ keyword: new Set(ranks.map((x) => x.locationCode)).size > 1 ? `${r.keyword} (${r.locationName}${r.device === "mobile" ? ", mobile" : ""})` : r.keyword, position: r.position, change: -r.change! })),
       }
     : null;
 

@@ -26,13 +26,17 @@ export const keywordRankTable: KeywordRankTableFn = async (clientId, opts) => {
   const days = Math.max(1, diffDays(opts.from, opts.to) + 1);
   const changeDays = opts.compareTo ? Math.max(1, diffDays(opts.compareTo, opts.to)) : 7;
   const rows = await rankRows(clientId, { to: opts.to, days, changeDays, limit: opts.limit });
-  return rows.map((r) => ({
-    keyword: r.device === "mobile" ? `${r.keyword} (mobile)` : r.keyword,
-    position: r.position,
-    previous: r.position != null && r.change != null ? r.position - r.change : null,
-    url: r.url,
-    location: null,
-  }));
+  // Grouped by market (location), best position first within each.
+  return rows
+    .map((r) => ({
+      keyword: r.keyword,
+      position: r.position,
+      previous: r.position != null && r.change != null ? r.position - r.change : null,
+      url: r.url,
+      location: r.locationName,
+      device: r.device,
+    }))
+    .sort((a, b) => (a.location ?? "").localeCompare(b.location ?? "") || (a.position ?? Infinity) - (b.position ?? Infinity) || a.keyword.localeCompare(b.keyword));
 };
 
 const KIND_SOURCES: Record<DataAssetKind, MetricSource[]> = {

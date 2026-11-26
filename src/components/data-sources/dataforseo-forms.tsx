@@ -14,8 +14,9 @@ export function DataForSeoConnectForm({ reconnect, defaultLogin }: { reconnect?:
     <form {...form} className="flex flex-col gap-2" autoComplete="off">
       <div className="grid gap-2 sm:grid-cols-2">
         <div className="flex flex-col gap-1">
-          <Label htmlFor="dfs-login">API login (email)</Label>
-          <Input id="dfs-login" name="login" type="text" inputMode="email" autoComplete="off" defaultValue={defaultLogin} required />
+          <Label htmlFor="dfs-login">API login</Label>
+          <Input id="dfs-login" name="login" type="text" autoComplete="off" spellCheck={false} aria-describedby="dfs-login-help" defaultValue={defaultLogin} required />
+          <span id="dfs-login-help" className="text-xs text-text-3">Shown under API Access in DataForSEO (not your account email)</span>
         </div>
         <div className="flex flex-col gap-1">
           <Label htmlFor="dfs-password">API password</Label>
