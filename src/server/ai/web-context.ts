@@ -43,7 +43,7 @@ export async function webContextFor(
   currency: string,
   range: Range,
   cmp: Range | null,
-  opts: { callrail?: boolean; callsFromAds?: { current: number; previous: number | null } | null; include?: Set<MetricSource> } = {},
+  opts: { callrail?: boolean; callsFromAds?: { current: number; previous: number | null } | null; include?: Set<MetricSource>; linked?: MetricSource[] } = {},
 ): Promise<AiWebContext | null> {
   // Sources left out of the client's Report are left out of the AI context (said as "not in this report").
   const on = (s: MetricSource) => !opts.include || opts.include.has(s);
@@ -109,7 +109,9 @@ export async function webContextFor(
       fromAds: opts.callsFromAds ?? null,
     };
   }
-  if (!analytics && !search && !rankings && !calls) return null;
+  // Linked but no figures for the period (e.g. the first import is still running): never "not connected".
+  const awaitingData = (["ga4", "gsc"] as const).filter((s) => on(s) && opts.linked?.includes(s) && !(s === "ga4" ? analytics : search));
+  if (!analytics && !search && !rankings && !calls && !awaitingData.length) return null;
   const notInReport = (["ga4", "gsc", "rank"] as const).filter((s) => !on(s));
-  return { analytics, channels: on("ga4") ? channels : [], search, rankings, calls, notInReport };
+  return { analytics, channels: on("ga4") ? channels : [], search, rankings, calls, notInReport, awaitingData };
 }

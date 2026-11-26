@@ -52,7 +52,7 @@ export async function summaryChannels(rep: ClientReport): Promise<string[]> {
 
 export async function aiContextForReport(rep: ClientReport): Promise<string> {
   const { linked, include } = await sourcesInReport(rep);
-  const web = await webContextFor(rep.client.id, rep.client.currency, rep.range, rep.cmpRange, { callrail: !linked.includes("callrail") ? false : include.has("callrail") ? true : undefined, callsFromAds: rep.callsFromAds ?? null, include }).catch(() => null);
+  const web = await webContextFor(rep.client.id, rep.client.currency, rep.range, rep.cmpRange, { callrail: !linked.includes("callrail") ? false : include.has("callrail") ? true : undefined, callsFromAds: rep.callsFromAds ?? null, include, linked }).catch(() => null);
   return buildAiContext({ ...contextInput(rep), web });
 }
 
