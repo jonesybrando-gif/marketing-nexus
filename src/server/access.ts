@@ -1,22 +1,10 @@
 import "server-only";
 import { notFound, redirect } from "next/navigation";
-import type { Prisma } from "@prisma/client";
 import { prisma } from "./db";
 import { requireUser } from "./auth";
 import { canEditClient, canViewAgencyDashboard, canViewClient, type SessionUser } from "@/lib/access";
 
-/** Prisma filter for the clients a user may see. Mirrors canViewClient. */
-export function visibleClientsWhere(user: SessionUser): Prisma.ClientWhereInput {
-  const base: Prisma.ClientWhereInput = { agencyId: user.agencyId, archivedAt: null };
-  switch (user.role) {
-    case "AGENCY_ADMIN":
-      return base;
-    case "ACCOUNT_MANAGER":
-      return { ...base, OR: [{ primaryManagerId: user.id }, { assignments: { some: { userId: user.id } } }] };
-    case "CLIENT_USER":
-      return { ...base, id: user.clientId ?? "__none__" };
-  }
-}
+export { visibleClientsWhere } from "./client-scope";
 
 async function loadClientFacts(clientId: string) {
   // Removed (archived) clients are hidden everywhere until restored.
