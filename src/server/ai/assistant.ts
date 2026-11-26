@@ -270,3 +270,30 @@ ${data}
   if (!text) throw new AiError("The AI didn't produce an answer. Try rewording the question.");
   return text;
 }
+
+// --- Site audit summary -------------------------------------------------------
+
+export const SiteAuditSummarySchema = z.object({
+  overview: z.string().describe("2 to 3 sentences: the health score and what changed since the previous crawl, in plain English"),
+  fixes: z.array(z.object({
+    title: z.string().describe("Short imperative, e.g. 'Fix the 12 pages that return errors'"),
+    why: z.string().describe("One or two sentences: why it matters for visitors or Google, citing the counts from the data"),
+  })).describe("The 3 to 5 highest-impact fixes, most important first"),
+  regressions: z.array(z.string()).describe("Problems that are new or got worse since the previous crawl, one short sentence each; empty when none or on a first crawl"),
+});
+export type SiteAuditSummary = z.infer<typeof SiteAuditSummarySchema>;
+
+/** Plain-language summary of a completed site audit for the account manager and the client report. */
+export async function draftSiteAuditSummary(data: string): Promise<SiteAuditSummary> {
+  const out = await generate(
+    SiteAuditSummarySchema,
+    `This DATA block is a technical SEO crawl of the client's website (not advertising data). Write a short summary for the client report.
+In "overview", give the health score (0–100, ours) and, when there was a previous crawl, how it changed and the main reason in the issue counts.
+In "fixes", pick the 3 to 5 fixes that would help most: errors before warnings, issues on many pages before issues on few, and anything that stops Google reading pages first. Use the issue's own fix guidance from the data, in plain English, with the page counts. No jargon: say "pages Google can't open" rather than "4xx".
+In "regressions", list issues marked new or worse; leave it empty on a first crawl or when nothing got worse.
+Never claim anything has been fixed except issues the data marks as fixed.`,
+    data,
+    "medium",
+  );
+  return { overview: out.overview.trim(), fixes: out.fixes.slice(0, 5), regressions: out.regressions.slice(0, 6) };
+}

@@ -1,0 +1,317 @@
+[
+ {
+  "location_code": 1013359,
+  "location_name": "Washington,Arkansas,United States",
+  "location_code_parent": 21135,
+  "country_iso_code": "US",
+  "location_type": "City"
+ },
+ {
+  "location_code": 1013740,
+  "location_name": "Dublin,California,United States",
+  "location_code_parent": 21137,
+  "country_iso_code": "US",
+  "location_type": "City"
+ },
+ {
+  "location_code": 1013962,
+  "location_name": "Los Angeles,California,United States",
+  "location_code_parent": 21137,
+  "country_iso_code": "US",
+  "location_type": "City"
+ },
+ {
+  "location_code": 1014017,
+  "location_name": "Mission Viejo,California,United States",
+  "location_code_parent": 21137,
+  "country_iso_code": "US",
+  "location_type": "City"
+ },
+ {
+  "location_code": 1014109,
+  "location_name": "Palo Alto,California,United States",
+  "location_code_parent": 21137,
+  "country_iso_code": "US",
+  "location_type": "City"
+ },
+ {
+  "location_code": 1014178,
+  "location_name": "Redwood City,California,United States",
+  "location_code_parent": 21137,
+  "country_iso_code": "US",
+  "location_type": "City"
+ },
+ {
+  "location_code": 1014226,
+  "location_name": "San Jose,California,United States",
+  "location_code_parent": 21137,
+  "country_iso_code": "US",
+  "location_type": "City"
+ },
+ {
+  "location_code": 1014279,
+  "location_name": "Simi Valley,California,United States",
+  "location_code_parent": 21137,
+  "country_iso_code": "US",
+  "location_type": "City"
+ },
+ {
+  "location_code": 1014327,
+  "location_name": "Temecula,California,United States",
+  "location_code_parent": 21137,
+  "country_iso_code": "US",
+  "location_type": "City"
+ },
+ {
+  "location_code": 1014380,
+  "location_name": "Washington,California,United States",
+  "location_code_parent": 21137,
+  "country_iso_code": "US",
+  "location_type": "City"
+ },
+ {
+  "location_code": 1014864,
+  "location_name": "Washington,Connecticut,United States",
+  "location_code_parent": 21139,
+  "country_iso_code": "US",
+  "location_type": "City"
+ },
+ {
+  "location_code": 1014895,
+  "location_name": "Washington,District of Columbia,United States",
+  "location_code_parent": 21140,
+  "country_iso_code": "US",
+  "location_type": "City"
+ },
+ {
+  "location_code": 1015333,
+  "location_name": "Dublin,Georgia,United States",
+  "location_code_parent": 21143,
+  "country_iso_code": "US",
+  "location_type": "City"
+ },
+ {
+  "location_code": 1015553,
+  "location_name": "Washington,Georgia,United States",
+  "location_code_parent": 21143,
+  "country_iso_code": "US",
+  "location_type": "City"
+ },
+ {
+  "location_code": 1016089,
+  "location_name": "Washington,Iowa,United States",
+  "location_code_parent": 21145,
+  "country_iso_code": "US",
+  "location_type": "City"
+ },
+ {
+  "location_code": 1016937,
+  "location_name": "Washington,Illinois,United States",
+  "location_code_parent": 21147,
+  "country_iso_code": "US",
+  "location_type": "City"
+ },
+ {
+  "location_code": 1017069,
+  "location_name": "Dublin,Indiana,United States",
+  "location_code_parent": 21148,
+  "country_iso_code": "US",
+  "location_type": "City"
+ },
+ {
+  "location_code": 1017359,
+  "location_name": "Washington,Indiana,United States",
+  "location_code_parent": 21148,
+  "country_iso_code": "US",
+  "location_type": "City"
+ },
+ {
+  "location_code": 1017665,
+  "location_name": "Washington,Kansas,United States",
+  "location_code_parent": 21149,
+  "country_iso_code": "US",
+  "location_type": "City"
+ },
+ {
+  "location_code": 1019084,
+  "location_name": "Washington,Maine,United States",
+  "location_code_parent": 21154,
+  "country_iso_code": "US",
+  "location_type": "City"
+ },
+ {
+  "location_code": 1019648,
+  "location_name": "Washington,Michigan,United States",
+  "location_code_parent": 21155,
+  "country_iso_code": "US",
+  "location_type": "City"
+ },
+ {
+  "location_code": 1020670,
+  "location_name": "Washington,Missouri,United States",
+  "location_code_parent": 21157,
+  "country_iso_code": "US",
+  "location_type": "City"
+ },
+ {
+  "location_code": 1021082,
+  "location_name": "Dublin,North Carolina,United States",
+  "location_code_parent": 21160,
+  "country_iso_code": "US",
+  "location_type": "City"
+ },
+ {
+  "location_code": 1021356,
+  "location_name": "Washington,North Carolina,United States",
+  "location_code_parent": 21160,
+  "country_iso_code": "US",
+  "location_type": "City"
+ },
+ {
+  "location_code": 1021841,
+  "location_name": "Dublin,New Hampshire,United States",
+  "location_code_parent": 21163,
+  "country_iso_code": "US",
+  "location_type": "City"
+ },
+ {
+  "location_code": 1022462,
+  "location_name": "Washington,Warren County,New Jersey,United States",
+  "location_code_parent": 21164,
+  "country_iso_code": "US",
+  "location_type": "City"
+ },
+ {
+  "location_code": 1023671,
+  "location_name": "Dublin,Ohio,United States",
+  "location_code_parent": 21168,
+  "country_iso_code": "US",
+  "location_type": "City"
+ },
+ {
+  "location_code": 1024809,
+  "location_name": "Dublin,Pennsylvania,United States",
+  "location_code_parent": 21171,
+  "country_iso_code": "US",
+  "location_type": "City"
+ },
+ {
+  "location_code": 1025379,
+  "location_name": "Washington,Pennsylvania,United States",
+  "location_code_parent": 21171,
+  "country_iso_code": "US",
+  "location_type": "City"
+ },
+ {
+  "location_code": 1026871,
+  "location_name": "Washington,Texas,United States",
+  "location_code_parent": 21176,
+  "country_iso_code": "US",
+  "location_type": "City"
+ },
+ {
+  "location_code": 1027008,
+  "location_name": "Washington,Utah,United States",
+  "location_code_parent": 21177,
+  "country_iso_code": "US",
+  "location_type": "City"
+ },
+ {
+  "location_code": 1027104,
+  "location_name": "Dublin,Virginia,United States",
+  "location_code_parent": 21178,
+  "country_iso_code": "US",
+  "location_type": "City"
+ },
+ {
+  "location_code": 1027327,
+  "location_name": "Washington,Virginia,United States",
+  "location_code_parent": 21178,
+  "country_iso_code": "US",
+  "location_type": "City"
+ },
+ {
+  "location_code": 1027471,
+  "location_name": "Washington,Vermont,United States",
+  "location_code_parent": 21179,
+  "country_iso_code": "US",
+  "location_type": "City"
+ },
+ {
+  "location_code": 1028261,
+  "location_name": "Washington,Wisconsin,United States",
+  "location_code_parent": 21182,
+  "country_iso_code": "US",
+  "location_type": "City"
+ },
+ {
+  "location_code": 1028436,
+  "location_name": "Washington,West Virginia,United States",
+  "location_code_parent": 21183,
+  "country_iso_code": "US",
+  "location_type": "City"
+ },
+ {
+  "location_code": 9219519,
+  "location_name": "Dublin,Texas,United States",
+  "location_code_parent": 21176,
+  "country_iso_code": "US",
+  "location_type": "City"
+ },
+ {
+  "location_code": 9227769,
+  "location_name": "Washington,Burlington County,New Jersey,United States",
+  "location_code_parent": 21164,
+  "country_iso_code": "US",
+  "location_type": "City"
+ },
+ {
+  "location_code": 9248990,
+  "location_name": "Washington,New Hampshire,United States",
+  "location_code_parent": 21163,
+  "country_iso_code": "US",
+  "location_type": "City"
+ },
+ {
+  "location_code": 2840,
+  "location_name": "United States",
+  "location_code_parent": null,
+  "country_iso_code": "US",
+  "location_type": "Country"
+ },
+ {
+  "location_code": 21137,
+  "location_name": "California,United States",
+  "location_code_parent": 2840,
+  "country_iso_code": "US",
+  "location_type": "State"
+ },
+ {
+  "location_code": 21168,
+  "location_name": "Ohio,United States",
+  "location_code_parent": 2840,
+  "country_iso_code": "US",
+  "location_type": "State"
+ },
+ {
+  "location_code": 9032032,
+  "location_name": "94568,California,United States",
+  "location_code_parent": 21137,
+  "country_iso_code": "US",
+  "location_type": "Postal Code"
+ },
+ {
+  "location_code": 9057119,
+  "location_name": "Alameda County,California,United States",
+  "location_code_parent": 21137,
+  "country_iso_code": "US",
+  "location_type": "County"
+ },
+ {
+  "location_code": 200807,
+  "location_name": "San Francisco-Oakland-San Jose, CA,California,United States",
+  "location_code_parent": 21137,
+  "country_iso_code": "US",
+  "location_type": "DMA Region"
+ }
+]

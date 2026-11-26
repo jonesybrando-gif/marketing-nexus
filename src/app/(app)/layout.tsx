@@ -22,7 +22,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     cookies(),
   ]);
   const staff = user.role !== "CLIENT_USER";
-  // Order: Clients (the landing page), Budget Pacing, AI Insights (issues and opportunities; formerly Alerts), Reports, Settings (incl. connections).
+  // Order: Clients (the landing page), Budget Pacing, AI Insights (issues and opportunities; formerly Alerts), Reports, Site Audits, Settings (incl. connections).
   // The former Home page stays reachable as "Agency overview" from search and the Clients page.
   const admin = user.role === "AGENCY_ADMIN";
   const nav: NavItem[] = staff
@@ -31,6 +31,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         { href: "/budget-pacing", label: "Budget Pacing", icon: "pacing" },
         { href: "/insights", label: "AI Insights", icon: "insights", count: unread, match: ["/alerts"] },
         { href: "/reports", label: "Reports", icon: "report" },
+        { href: "/site-audits", label: "Site Audits", icon: "audit" },
         // Account managers can't change agency settings, but they manage connections.
         { href: admin ? "/settings" : "/integrations", label: "Settings", icon: "settings", match: ["/settings", "/integrations"] },
       ]

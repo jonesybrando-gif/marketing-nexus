@@ -5,7 +5,9 @@ import { prisma } from "../db";
 import type { MetricSource } from "@/lib/metrics-registry";
 import { diffDays, type IsoDate } from "@/lib/pacing/dates";
 import { keywordRankTable as rankRows } from "../metrics/rankings";
-import type { CallLogRow, FormLogRow, KeywordRankRow } from "@/lib/dashboards/widget-data";
+import type { AuditIssueLite, CallLogRow, FormLogRow, KeywordRankRow } from "@/lib/dashboards/widget-data";
+import { issueRows } from "../site-audit/queries";
+import type { SiteAuditSummary } from "../ai/assistant";
 
 // Data a dashboard needs from sources that live outside the metric registry's
 // query API. Kept behind small functions so the resolver (./data.ts) can be
@@ -26,13 +28,17 @@ export const keywordRankTable: KeywordRankTableFn = async (clientId, opts) => {
   const days = Math.max(1, diffDays(opts.from, opts.to) + 1);
   const changeDays = opts.compareTo ? Math.max(1, diffDays(opts.compareTo, opts.to)) : 7;
   const rows = await rankRows(clientId, { to: opts.to, days, changeDays, limit: opts.limit });
-  return rows.map((r) => ({
-    keyword: r.device === "mobile" ? `${r.keyword} (mobile)` : r.keyword,
-    position: r.position,
-    previous: r.position != null && r.change != null ? r.position - r.change : null,
-    url: r.url,
-    location: null,
-  }));
+  // Grouped by market (location), best position first within each.
+  return rows
+    .map((r) => ({
+      keyword: r.keyword,
+      position: r.position,
+      previous: r.position != null && r.change != null ? r.position - r.change : null,
+      url: r.url,
+      location: r.locationName,
+      device: r.device,
+    }))
+    .sort((a, b) => (a.location ?? "").localeCompare(b.location ?? "") || (a.position ?? Infinity) - (b.position ?? Infinity) || a.keyword.localeCompare(b.keyword));
 };
 
 const KIND_SOURCES: Record<DataAssetKind, MetricSource[]> = {
@@ -45,6 +51,51 @@ const KIND_SOURCES: Record<DataAssetKind, MetricSource[]> = {
   RANK_PROJECT: ["rank"],
 };
 
+export interface SiteAuditSnapshot {
+  /** Latest completed crawl that finished by the end of the period. */
+  latest: { id: string; score: number | null; pages: number | null; errorPages: number | null; finishedAt: string; summary: SiteAuditSummary | null } | null;
+  /** What it is compared with: the latest crawl before the period began, else the crawl before `latest`. */
+  baseline: { score: number | null; finishedAt: string } | null;
+  /** Issue rows of `latest` against `baseline`. */
+  issues: AuditIssueLite[];
+  /** Every completed crawl up to the end of the period, oldest first. */
+  trend: { date: string; score: number | null }[];
+}
+
+export type SiteAuditSnapshotFn = (clientId: string, opts: { from: IsoDate; to: IsoDate }) => Promise<SiteAuditSnapshot>;
+
+/** Site Auditor data for the audit widgets over a period. */
+export const siteAuditSnapshot: SiteAuditSnapshotFn = async (clientId, { from, to }) => {
+  const end = new Date(`${to}T23:59:59.999Z`);
+  const start = new Date(`${from}T00:00:00Z`);
+  const done = await prisma.siteAudit.findMany({
+    where: { clientId, status: "completed", finishedAt: { lte: end } },
+    orderBy: { finishedAt: "asc" },
+    select: { id: true, healthScore: true, pagesCrawled: true, errorPages: true, finishedAt: true, aiSummary: true },
+  });
+  const latest = done.at(-1);
+  if (!latest) return { latest: null, baseline: null, issues: [], trend: [] };
+  const before = done.filter((a) => a.finishedAt! < start).at(-1);
+  const base = before && before.id !== latest.id ? before : done.at(-2) ?? null;
+  const [li, bi] = await Promise.all([
+    prisma.siteAuditIssue.findMany({ where: { auditId: latest.id } }),
+    base ? prisma.siteAuditIssue.findMany({ where: { auditId: base.id } }) : Promise.resolve(null),
+  ]);
+  return {
+    latest: {
+      id: latest.id,
+      score: latest.healthScore,
+      pages: latest.pagesCrawled,
+      errorPages: latest.errorPages,
+      finishedAt: latest.finishedAt!.toISOString(),
+      summary: latest.aiSummary && typeof latest.aiSummary === "object" ? (latest.aiSummary as unknown as SiteAuditSummary) : null,
+    },
+    baseline: base ? { score: base.healthScore, finishedAt: base.finishedAt!.toISOString() } : null,
+    issues: issueRows(li, bi).map(({ key, label, severity, category, fix, count, previous, change }) => ({ key, label, severity, category, fix, count, previous, change })),
+    trend: done.map((a) => ({ date: a.finishedAt!.toISOString().slice(0, 10), score: a.healthScore })),
+  };
+};
+
 /** Sources with something linked to the client ("ads" = any ad account). Drives "Connect GA4 to see this". */
 export async function linkedSources(clientId: string): Promise<MetricSource[]> {
   const [assets, ads] = await Promise.all([
@@ -53,6 +104,7 @@ export async function linkedSources(clientId: string): Promise<MetricSource[]> {
   ]);
   const out = new Set<MetricSource>(assets.flatMap((a) => KIND_SOURCES[a.kind] ?? []));
   if (ads > 0) out.add("ads");
+  if (await prisma.siteAuditConfig.count({ where: { clientId } })) out.add("audit");
   return [...out];
 }
 

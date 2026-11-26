@@ -1,0 +1,211 @@
+{
+ "version": "0.1.20261117",
+ "status_code": 20000,
+ "status_message": "Ok.",
+ "time": "0 sec.",
+ "cost": 0,
+ "tasks_count": 1,
+ "tasks_error": 0,
+ "tasks": [
+  {
+   "id": "11260041-3282-0216-2000-4332c00707ea",
+   "status_code": 20000,
+   "status_message": "Ok.",
+   "time": "0 sec.",
+   "cost": 0,
+   "result_count": 1,
+   "path": [
+    "v3",
+    "on_page",
+    "non_indexable"
+   ],
+   "data": {
+    "api": "on_page",
+    "function": "non_indexable",
+    "limit": 100
+   },
+   "result": [
+    {
+     "crawl_progress": "finished",
+     "crawl_status": {
+      "max_crawl_pages": 10,
+      "pages_in_queue": 0,
+      "pages_crawled": 10
+     },
+     "total_items_count": 42,
+     "items_count": 42,
+     "items": [
+      {
+       "reason": "robots_txt",
+       "url": "https://www.ebay.com/adchoice"
+      },
+      {
+       "reason": "robots_txt",
+       "url": "https://www.ebay.com/adchoice/ccpa"
+      },
+      {
+       "reason": "robots_txt",
+       "url": "https://www.ebay.com/b/Cell-Phones-Smartphones/9355/bn_320094?rt=nc&LH_ItemCondition=2000%7C2010%7C2020%7C2030"
+      },
+      {
+       "reason": "robots_txt",
+       "url": "https://www.ebay.com/b/Computer-Monitors/80053/bn_317528?rt=nc&LH_ItemCondition=2000%7C2010%7C2020%7C2030"
+      },
+      {
+       "reason": "robots_txt",
+       "url": "https://www.ebay.com/b/Desktops-All-In-One-Computers/171957/bn_1643067?LH_ItemCondition=2000%7C2010%7C2020%7C2030"
+      },
+      {
+       "reason": "robots_txt",
+       "url": "https://www.ebay.com/b/Headphones/112529/bn_879608?LH_ItemCondition=2000%7C2010%7C2020%7C2030&mag=1&rt=nc"
+      },
+      {
+       "reason": "robots_txt",
+       "url": "https://www.ebay.com/b/Home-Audio-Equipment/184973/bn_115021122?LH_ItemCondition=2000"
+      },
+      {
+       "reason": "robots_txt",
+       "url": "https://www.ebay.com/b/Laptops-Netbooks/175672/bn_1648276?rt=nc&LH_ItemCondition=2000%7C2010%7C2020%7C2030"
+      },
+      {
+       "reason": "robots_txt",
+       "url": "https://www.ebay.com/b/Outdoor-Power-Equipment/29518/bn_2309717?LH_ItemCondition=2000"
+      },
+      {
+       "reason": "robots_txt",
+       "url": "https://www.ebay.com/b/Power-Tools/3247/bn_2310272?LH_ItemCondition=2000"
+      },
+      {
+       "reason": "robots_txt",
+       "url": "https://www.ebay.com/b/Smart-Watches/178893/bn_152365?LH_ItemCondition=2000%7C2010%7C2020%7C2030"
+      },
+      {
+       "reason": "robots_txt",
+       "url": "https://www.ebay.com/b/Surveillance-Smart-Home-Electronics/185067/bn_115028425?LH_ItemCondition=2000"
+      },
+      {
+       "reason": "robots_txt",
+       "url": "https://www.ebay.com/b/Tablets/171485/bn_348394?LH_ItemCondition=2000%7C2010%7C2020%7C2030"
+      },
+      {
+       "reason": "robots_txt",
+       "url": "https://www.ebay.com/b/Vacuum-Cleaners/20614/bn_2310596?LH_ItemCondition=2000"
+      },
+      {
+       "reason": "robots_txt",
+       "url": "https://www.ebay.com/e/_collectibles/us-collectibles-starwars?_trkparams=5373%3A0%7C5374%3AFeatured"
+      },
+      {
+       "reason": "robots_txt",
+       "url": "https://www.ebay.com/e/daily-deals/26-rw30-apac-home-appliances?_trkparams=5373%3A0%7C5374%3AFeatured"
+      },
+      {
+       "reason": "robots_txt",
+       "url": "https://www.ebay.com/e/daily-deals/26-rw30-apac-renewable-energy?_trkparams=5373%3A0%7C5374%3AFeatured"
+      },
+      {
+       "reason": "robots_txt",
+       "url": "https://www.ebay.com/e/daily-deals/26-rw30-apac-tech?_trkparams=5373%3A0%7C5374%3AFeatured"
+      },
+      {
+       "reason": "robots_txt",
+       "url": "https://www.ebay.com/e/daily-deals/26-rw30-apac-toys?_trkparams=5373%3A0%7C5374%3AFeatured"
+      },
+      {
+       "reason": "robots_txt",
+       "url": "https://www.ebay.com/e/daily-deals/26-rw40-spark-ehi-sfc?_trkparams=5373%3A0%7C5374%3AFeatured"
+      },
+      {
+       "reason": "robots_txt",
+       "url": "https://www.ebay.com/e/daily-deals/26-rw47-cyber-week-sfc?mkevt=1&mkpid=2&emsid=0&plmtId=19908&mesgId=3825902363517505698&mkcid=8&ch=osgood&cnvId=400001"
+      },
+      {
+       "reason": "robots_txt",
+       "url": "https://www.ebay.com/e/sales-events/us-trading-rw44-paypal-deals?_trkparams=5373%3A0%7C5374%3AFeatured"
+      },
+      {
+       "reason": "robots_txt",
+       "url": "https://www.ebay.com/e/sales-events/us-trading-rw44-paypal-deals?mkevt=1&mkpid=2&emsid=0&plmtId=19909&mesgId=8481987458157452870&mkcid=8&ch=osgood&cnvId=400001"
+      },
+      {
+       "reason": "attribute",
+       "url": "https://www.ebay.com/help/account/changing-account-settings/reset-password?id=4197&st=7"
+      },
+      {
+       "reason": "attribute",
+       "url": "https://www.ebay.com/help/account/creating-account/creating-ebay-account?id=4191&st=7"
+      },
+      {
+       "reason": "attribute",
+       "url": "https://www.ebay.com/help/account/protecting-account/get-help-hacked-account?id=4196&st=7"
+      },
+      {
+       "reason": "attribute",
+       "url": "https://www.ebay.com/help/buying/paying-items/buying-guest?id=4035&st=7"
+      },
+      {
+       "reason": "attribute",
+       "url": "https://www.ebay.com/help/buying/returns-items-not-received-refunds-buyers/get-help-item-hasnt-arrived?id=4042&st=7"
+      },
+      {
+       "reason": "attribute",
+       "url": "https://www.ebay.com/help/buying/returns-items-not-received-refunds-buyers/returning-item/returning-items-bought-guest?id=4065&st=7"
+      },
+      {
+       "reason": "robots_txt",
+       "url": "https://www.ebay.com/mes/summary"
+      },
+      {
+       "reason": "robots_txt",
+       "url": "https://www.ebay.com/mye/buyagain"
+      },
+      {
+       "reason": "robots_txt",
+       "url": "https://www.ebay.com/mye/myebay/bidsoffers"
+      },
+      {
+       "reason": "robots_txt",
+       "url": "https://www.ebay.com/mye/myebay/purchase"
+      },
+      {
+       "reason": "robots_txt",
+       "url": "https://www.ebay.com/mye/myebay/rvi"
+      },
+      {
+       "reason": "robots_txt",
+       "url": "https://www.ebay.com/mye/myebay/saved"
+      },
+      {
+       "reason": "robots_txt",
+       "url": "https://www.ebay.com/mye/myebay/savedsearches"
+      },
+      {
+       "reason": "robots_txt",
+       "url": "https://www.ebay.com/mye/myebay/savedsellers"
+      },
+      {
+       "reason": "robots_txt",
+       "url": "https://www.ebay.com/mye/myebay/summary"
+      },
+      {
+       "reason": "robots_txt",
+       "url": "https://www.ebay.com/mye/myebay/watchlist"
+      },
+      {
+       "reason": "robots_txt",
+       "url": "https://www.ebay.com/mys/home?CurrentPage=MyeBayAllSelling&ssPageName=STRK:ME:LNLK:MESX&source=GBH"
+      },
+      {
+       "reason": "robots_txt",
+       "url": "https://www.ebay.com/mys/home?source=GBH"
+      },
+      {
+       "reason": "robots_txt",
+       "url": "https://www.ebay.com/mys/overview"
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

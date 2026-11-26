@@ -1,12 +1,17 @@
 // Pure row building for keyword rank tables (no DB access). Used by
 // ./rankings.ts; kept separate so it can be unit-tested without Prisma.
 import { addDays, type IsoDate } from "@/lib/pacing/dates";
+import { shortLocationName } from "@/lib/rankings";
 
 export interface KeywordRankRow {
   keywordId: string;
   keyword: string;
   device: "desktop" | "mobile";
   locationCode: number;
+  /** Display name, e.g. "Dublin, California" ("United States" for the country). */
+  locationName: string;
+  /** Checks are paused for this item (history still shown). */
+  paused: boolean;
   /** Latest organic position on or before `to`; null = not in the top 100 (or not checked yet). */
   position: number | null;
   /** Date of that latest check, or null if never checked. */
@@ -37,6 +42,8 @@ export interface KeywordRankTableOptions {
   changeDays?: number;
   /** Max rows (sorted by position, unranked last). Default all. */
   limit?: number;
+  /** Only items at this DataForSEO location. */
+  locationCode?: number;
 }
 
 export interface RankPoint { keywordId: string; date: IsoDate; position: number | null; url: string | null; serpFeatures: unknown }
@@ -52,7 +59,7 @@ function positionAround(byDate: Map<IsoDate, RankPoint>, date: IsoDate): { found
 
 /** Pure: builds table rows from keywords and their rank points. Exported for tests. */
 export function buildKeywordRankRows(
-  keywords: { id: string; keyword: string; device: string; locationCode: number }[],
+  keywords: { id: string; keyword: string; device: string; locationCode: number; locationName?: string | null; active?: boolean }[],
   points: RankPoint[],
   best: Map<string, number | null>,
   opts: Required<Pick<KeywordRankTableOptions, "to" | "days" | "changeDays">> & { limit?: number },
@@ -81,6 +88,8 @@ export function buildKeywordRankRows(
       keyword: k.keyword,
       device: k.device === "mobile" ? "mobile" : "desktop",
       locationCode: k.locationCode,
+      locationName: shortLocationName(k.locationName, k.locationCode),
+      paused: k.active === false,
       position: latest?.position ?? null,
       checkedOn: latest?.date ?? null,
       change: delta(opts.changeDays),
@@ -93,6 +102,6 @@ export function buildKeywordRankRows(
       history: windowDays.map((date) => ({ date, position: m.get(date)?.position ?? null })),
     };
   });
-  rows.sort((a, b) => (a.position ?? Infinity) - (b.position ?? Infinity) || a.keyword.localeCompare(b.keyword) || a.device.localeCompare(b.device));
+  rows.sort((a, b) => (a.position ?? Infinity) - (b.position ?? Infinity) || a.keyword.localeCompare(b.keyword) || a.locationName.localeCompare(b.locationName) || a.device.localeCompare(b.device));
   return opts.limit ? rows.slice(0, opts.limit) : rows;
 }

@@ -1,7 +1,7 @@
 import { Suspense, type ReactNode } from "react";
 import Link from "next/link";
 import type { Metadata } from "next";
-import { CalendarClock, ChevronRight, LayoutDashboard, Sparkles, StickyNote, Download, Database, FileSliders, FileText, Link2, ListChecks, Mail, Plug, Search, Share2, Wallet } from "lucide-react";
+import { CalendarClock, ChevronRight, Gauge, LayoutDashboard, Sparkles, StickyNote, Download, Database, FileSliders, FileText, Link2, ListChecks, Mail, Plug, Search, Share2, Wallet } from "lucide-react";
 import { AiSuggestionsCard } from "@/components/ai/suggestions-card";
 import { requireClientView, userCanEditClient, visibleClientsWhere } from "@/server/access";
 import { withRememberedRange } from "@/server/remembered-range";
@@ -41,14 +41,16 @@ import { NextStepsSection } from "@/components/next-steps/next-steps-section";
 import { OpportunitiesList } from "@/app/(app)/insights/opportunities";
 import { AnalyticsTab } from "@/components/analytics/analytics-tab";
 import { CallRailTab } from "@/components/callrail/callrail-tab";
+import { SiteAuditTab } from "@/components/site-audit/site-audit-tab";
 
 export const dynamic = "force-dynamic";
 
-// Report · Paid Media · SEO · Google Analytics · CallRail · Budgets | Settings (agency staff only)
+// Report · Paid Media · SEO · Site Audit · Google Analytics · CallRail · Budgets | Settings (agency staff only)
 const TABS = [
   { key: "report", label: "Report", group: 0 },
   { key: "paid", label: "Paid Media", group: 0 },
   { key: "seo", label: "SEO", group: 0 },
+  { key: "audit", label: "Site Audit", group: 0 },
   { key: "analytics", label: "Google Analytics", group: 0 },
   { key: "callrail", label: "CallRail", group: 0 },
   { key: "budgets", label: "Budgets", group: 0 },
@@ -253,6 +255,12 @@ export default async function ClientPage({ params, searchParams }: { params: Pro
 
       {tab === "seo" && <SeoTab clientId={id} range={range} cmpRange={cmpRange} canEdit={canEdit} settingsHref={tabHref("settings")} />}
 
+      {tab === "audit" && (
+        <Suspense fallback={<SectionSkeleton cards={2} tallFirst />}>
+          <SiteAuditTab clientId={id} agencyId={user.agencyId} canEdit={canEdit} isAdmin={user.role === "AGENCY_ADMIN"} staff={staff} />
+        </Suspense>
+      )}
+
       {tab === "analytics" && <AnalyticsTab clientId={id} range={range} cmpRange={cmpRange} canEdit={canEdit} />}
 
       {tab === "callrail" && <CallRailTab clientId={id} currency={client.currency} today={rep.today} range={range} cmpRange={cmpRange} compareMode={compareMode} canEdit={canEdit} staff={staff} />}
@@ -346,6 +354,7 @@ export default async function ClientPage({ params, searchParams }: { params: Pro
               { href: keep(`${base}/budgets`), Icon: Wallet, title: "Budgets", body: "Monthly budgets, how they're split and when pacing warns you." },
               { href: keep(`${base}/report`), Icon: FileSliders, title: "Report layout, logo & goal", body: "The client's logo and goal, the figures and sections they see, and the default date range." },
               { href: keep(`${base}/rankings`), Icon: Search, title: "Keyword rankings", body: "Daily Google positions for the client's keywords." },
+              { href: tabHref("audit"), Icon: Gauge, title: "Site audit", body: "Scheduled website crawls: health score, technical SEO issues and how to fix them." },
               { href: tabHref("insights"), Icon: Sparkles, title: "AI insights", body: "The executive summary, suggestions and opportunities for this client." },
               { href: tabHref("dashboards"), Icon: LayoutDashboard, title: "Next steps & extra dashboards", body: "Agreed next steps, and any custom dashboards beyond the Report." },
             ].map(({ href, Icon, title, body }) => (

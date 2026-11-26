@@ -45,6 +45,8 @@ model Agency {
   slackWebhookEnc String?
   /// When an admin dismissed the "Get set up" checklist (null = showing).
   setupChecklistDismissedAt DateTime?
+  /// Site Auditor: most the agency spends on DataForSEO crawls per calendar month (USD, estimates).
+  siteAuditMonthlyCapUsd Float @default(25)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -191,6 +193,8 @@ model Client {
   dashboards  Dashboard[]
   insightStatuses InsightStatus[]
   nextSteps   NextStep[]
+  siteAuditConfig SiteAuditConfig?
+  siteAudits      SiteAudit[]
 
   @@index([agencyId])
 }
@@ -773,16 +777,35 @@ model TrackedKeyword {
   keyword      String
   /// DataForSEO location code (e.g. 2840 = United States) and language.
   locationCode Int      @default(2840)
+  /// Display name of the location, e.g. "Dublin, California, United States".
+  locationName String?
   languageCode String   @default("en")
   device       String   @default("desktop") // "desktop" | "mobile"
   targetDomain String
+  /// Checked daily. False = paused (archivedAt null) or archived.
   active       Boolean  @default(true)
+  /// Replaced (location or device changed) or put away: hidden from tables, history kept.
+  archivedAt   DateTime?
   createdAt    DateTime @default(now())
 
   ranks KeywordRank[]
 
   @@unique([assetId, keyword, locationCode, device])
   @@index([clientId])
+}
+
+/// DataForSEO's Google locations list (cities, counties, DMAs, states, ZIPs),
+/// cached per country for the rank tracking location search. Free to fetch.
+model RankLocation {
+  code        Int      @id
+  /// DataForSEO form, e.g. "Dublin,California,United States".
+  name        String
+  type        String
+  countryIso  String
+  parentCode  Int?
+  updatedAt   DateTime @updatedAt
+
+  @@index([countryIso, type])
 }
 
 model KeywordRank {
@@ -925,4 +948,111 @@ model NextStep {
   updatedAt    DateTime  @updatedAt
 
   @@index([clientId, status])
+}
+
+// ---------------------------------------------------------------------------
+// Site Auditor (DataForSEO On-Page API). See src/server/site-audit/README.md.
+// ---------------------------------------------------------------------------
+
+/// A client's crawl settings. One per client.
+model SiteAuditConfig {
+  id         String   @id @default(cuid())
+  clientId   String   @unique
+  client     Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  /// Site to crawl, e.g. "https://example.com".
+  targetUrl  String
+  /// "weekly" | "monthly" | "manual"
+  schedule   String   @default("weekly")
+  /// Weekly: 0 = Sunday … 6 = Saturday.
+  dayOfWeek  Int?     @default(1)
+  /// Monthly: 1–28.
+  dayOfMonth Int?
+  maxPages   Int      @default(500)
+  /// JavaScript rendering (about 10× the cost per page).
+  enableJs   Boolean  @default(false)
+  /// "off" | "homepage" | "top_pages" (homepage + up to 5 top landing pages)
+  lighthouse String   @default("homepage")
+  active     Boolean  @default(true)
+  /// Next scheduled crawl (null for manual).
+  nextRunAt  DateTime?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+/// One crawl. Score, counts and issue rows are kept forever for the trend;
+/// sample URLs and page rows only for the client's last 6 completed audits.
+model SiteAudit {
+  id             String   @id @default(cuid())
+  clientId       String
+  client         Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  /// "queued" | "crawling" | "processing" | "completed" | "failed" | "skipped"
+  status         String   @default("queued")
+  /// "schedule" | "manual"
+  trigger        String   @default("schedule")
+  targetUrl      String
+  maxPages       Int
+  enableJs       Boolean  @default(false)
+  lighthouseMode String   @default("off")
+  providerTaskId String?
+  createdAt      DateTime @default(now())
+  startedAt      DateTime?
+  finishedAt     DateTime?
+  pagesCrawled   Int?
+  /// Our score, 0–100 (src/lib/site-audit/score.ts).
+  healthScore    Int?
+  /// DataForSEO's own onpage_score, for reference.
+  onpageScore    Float?
+  /// Pages with at least one error / warning / notice.
+  errorPages     Int?
+  warningPages   Int?
+  noticePages    Int?
+  estimatedCost  Float    @default(0)
+  actualCost     Float?
+  /// "bad_credentials" | "insufficient_balance" | "invalid_target" | "rate_limit" | "provider_error" | "timeout" | "cost_cap" | "not_connected" | "already_running"
+  errorCode      String?
+  errorMessage   String?
+  /// Lighthouse results: [{ url, performance, lcpMs, cls, tbtMs }].
+  lighthouse     Json?
+  /// AI summary: { overview, fixes: [{ title, why }], regressions: [] }.
+  aiSummary      Json?
+  aiSummaryError String?
+  /// Set when sample URLs and pages were dropped (older than the last 6 audits).
+  detailPrunedAt DateTime?
+
+  issues SiteAuditIssue[]
+  pages  SiteAuditPage[]
+
+  @@index([clientId, createdAt])
+  @@index([status])
+}
+
+model SiteAuditIssue {
+  id         String    @id @default(cuid())
+  auditId    String
+  audit      SiteAudit @relation(fields: [auditId], references: [id], onDelete: Cascade)
+  /// Stable key from src/lib/site-audit/issues.ts, e.g. "missing_title".
+  issueKey   String
+  /// "error" | "warning" | "notice"
+  severity   String
+  /// "crawlability" | "content" | "links" | "performance" | "security" | "images"
+  category   String
+  /// Pages affected (or occurrences, for site-wide checks).
+  count      Int
+  /// Up to 20 example URLs.
+  sampleUrls Json?
+
+  @@unique([auditId, issueKey])
+}
+
+/// Pages with at least one error or warning (others aren't stored).
+model SiteAuditPage {
+  id          String    @id @default(cuid())
+  auditId     String
+  audit       SiteAudit @relation(fields: [auditId], references: [id], onDelete: Cascade)
+  url         String
+  statusCode  Int?
+  issueKeys   String[]
+  onpageScore Float?
+
+  @@index([auditId])
 }

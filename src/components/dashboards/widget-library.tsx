@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { AreaChart, BarChart3, Hash, LineChart, ListOrdered, Phone, PieChart, Plug, Table2, Type, Wallet, X } from "lucide-react";
+import { AreaChart, BarChart3, CheckCircle2, Gauge, Hash, LineChart, ListChecks, ListOrdered, Phone, PieChart, Plug, Sparkles, Table2, Type, Wallet, X } from "lucide-react";
 import type { MetricSource } from "@/lib/metrics-registry";
 import { dimensionsFor, metricsFor, SOURCE_LABEL, SOURCE_ORDER } from "@/lib/dashboards/metrics";
 import { KIND_LABEL } from "@/lib/dashboards/describe";
@@ -22,7 +22,7 @@ export interface WidgetDraft {
   title?: string;
 }
 
-const KIND_ICON: Record<WidgetKind, typeof Hash> = { kpi: Hash, line: LineChart, area: AreaChart, bar: BarChart3, table: Table2, pie: PieChart, rankings: ListOrdered, calllog: Phone, formlog: Table2, text: Type, pacing: Wallet, campaigns: Table2 };
+const KIND_ICON: Record<WidgetKind, typeof Hash> = { kpi: Hash, line: LineChart, area: AreaChart, bar: BarChart3, table: Table2, pie: PieChart, rankings: ListOrdered, calllog: Phone, formlog: Table2, text: Type, pacing: Wallet, campaigns: Table2, audit_score: Gauge, audit_issues: ListChecks, audit_fixed: CheckCircle2, audit_summary: Sparkles };
 
 const METRIC_KINDS: WidgetKind[] = ["kpi", "line", "area", "bar", "table", "pie"];
 
@@ -34,6 +34,7 @@ export function kindsFor(tab: LibraryTab): WidgetKind[] {
   const metricKinds = hasMetrics ? METRIC_KINDS.filter((k) => hasDims || (k !== "table" && k !== "pie")) : [];
   if (tab === "ads") return [...metricKinds, "pacing", "campaigns"];
   if (tab === "rank") return ["rankings", ...metricKinds];
+  if (tab === "audit") return ["audit_score", "audit_issues", "audit_fixed", "audit_summary"];
   if (tab === "callrail") return [...metricKinds, "calllog", "formlog"];
   return metricKinds;
 }
@@ -89,6 +90,10 @@ export function WidgetLibrary({ linked, templateMode, onAdd, onClose, full, init
     if (kind === "table") return `Top rows by the first metric; up to ${max} columns.`;
     if (kind === "pie") return "Share of one metric by a breakdown.";
     if (kind === "rankings") return "Tracked keyword positions and their change.";
+    if (kind === "audit_score") return "The latest site health score (0–100), its change and the trend over every crawl.";
+    if (kind === "audit_issues") return "The 10 biggest technical SEO issues from the latest crawl, with how to fix each.";
+    if (kind === "audit_fixed") return "Issues fixed since the start of the period (or the previous crawl).";
+    if (kind === "audit_summary") return "The AI summary of the latest crawl: what changed and the top fixes.";
     if (kind === "calllog") return "The most recent calls: date, caller, source, phone number, answered, first call, keywords, campaign and recording.";
     if (kind === "formlog") return "The most recent form submissions: date, name, form URL, referrer and first submission.";
     if (kind === "pacing") return "The budget pacing chart and figures for the current period.";

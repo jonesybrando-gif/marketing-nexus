@@ -14,7 +14,7 @@ import { sourceOf } from "./metrics";
 /** Version of the saved Report format (Dashboard.layoutVersion): 1 = flat widgets, 2 = sections. */
 export const REPORT_SECTIONS_VERSION = 2;
 
-export type SectionType = "google_ads" | "meta_ads" | "microsoft_ads" | "lsa" | "ads" | "callrail" | "seo" | "ga4" | "pacing";
+export type SectionType = "google_ads" | "meta_ads" | "microsoft_ads" | "lsa" | "ads" | "callrail" | "seo" | "ga4" | "site_audit" | "pacing";
 
 export interface SectionTypeDef {
   type: SectionType;
@@ -41,6 +41,7 @@ export const SECTION_TYPES: SectionTypeDef[] = [
   { type: "callrail", title: "CallRail", description: "Calls, answered and missed, first-time callers, sources and campaigns.", sources: ["callrail"], requires: ["callrail"] },
   { type: "seo", title: "SEO", description: "Google Search clicks and positions, top queries and pages, keyword rankings.", sources: ["gsc", "rank"], requires: ["gsc", "rank"] },
   { type: "ga4", title: "Google Analytics", description: "Website visitors, visits, engagement, channels, pages and goals.", sources: ["ga4"], requires: ["ga4"] },
+  { type: "site_audit", title: "Site Audit", description: "Website health score and trend, the top technical SEO issues with how to fix them, and what was fixed.", sources: ["audit"], requires: ["audit"] },
   { type: "pacing", title: "Budget Pacing", description: "This month's budget, spend so far, what's left and the spending pace.", sources: [], requires: ["ads"] },
 ];
 export const SECTION_TYPE: Record<SectionType, SectionTypeDef> = Object.fromEntries(SECTION_TYPES.map((d) => [d.type, d])) as Record<SectionType, SectionTypeDef>;
@@ -155,6 +156,13 @@ export function sectionTemplate(type: SectionType, p: string, linked?: MetricSou
         { id: `${p}-goals`, kind: "line", title: "Website goals over time", metrics: ["ga4.keyEvents"], x: 7, y: y + 4, w: 5, h: 5 },
       ];
     }
+    case "site_audit":
+      return [
+        { id: `${p}-score`, kind: "audit_score", title: "Site health score", x: 0, y: 0, w: 5, h: 4 },
+        { id: `${p}-summary`, kind: "audit_summary", title: "What the latest crawl found", x: 5, y: 0, w: 7, h: 4 },
+        { id: `${p}-issues`, kind: "audit_issues", title: "Top site issues", x: 0, y: 4, w: 12, h: 7 },
+        { id: `${p}-fixed`, kind: "audit_fixed", title: "Fixed since the last report", x: 0, y: 11, w: 12, h: 4 },
+      ];
     case "pacing":
       // The existing pacing block: budget, spent, left, % used, spend vs plan by day and the daily spend needed.
       return [{ id: `${p}-pacing`, kind: "pacing", title: "Budget pacing", x: 0, y: 0, w: 12, h: 6 }];
@@ -200,6 +208,7 @@ function typeOfWidget(w: DashboardWidget): SectionType {
   if (w.kind === "campaigns") return "ads";
   if (w.kind === "rankings") return "seo";
   if (w.kind === "calllog" || w.kind === "formlog") return "callrail";
+  if (w.kind.startsWith("audit_")) return "site_audit";
   const src = w.metrics?.length ? sourceOf(w.metrics[0]) : null;
   if (src === "callrail") return "callrail";
   if (src === "gsc" || src === "rank") return "seo";

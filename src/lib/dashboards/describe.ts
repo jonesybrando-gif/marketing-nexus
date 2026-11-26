@@ -14,6 +14,10 @@ export const KIND_LABEL: Record<WidgetKind, string> = {
   text: "Text",
   pacing: "Budget pacing",
   campaigns: "Campaigns table",
+  audit_score: "Site health score",
+  audit_issues: "Top site issues",
+  audit_fixed: "Issues fixed",
+  audit_summary: "Site audit summary",
 };
 
 /** The widget's title, or a sensible one from its metrics and breakdown. */
@@ -43,5 +47,13 @@ export function widgetTitle(w: Pick<DashboardWidget, "kind" | "title" | "metrics
       return "Budget pacing";
     case "campaigns":
       return "Campaigns";
+    case "audit_score":
+      return "Site health score";
+    case "audit_issues":
+      return "Top site issues";
+    case "audit_fixed":
+      return "Issues fixed since last audit";
+    case "audit_summary":
+      return "Site audit summary";
   }
 }

@@ -9,7 +9,7 @@ export const ROW_PX = 64;
 export const GAP_PX = 12;
 
 /** Full-width widgets whose content varies in length: shown at their natural height (capped at their grid height). */
-const FLOW_KINDS: WidgetKind[] = ["pacing", "campaigns", "calllog", "formlog", "table", "rankings"];
+const FLOW_KINDS: WidgetKind[] = ["pacing", "campaigns", "calllog", "formlog", "table", "rankings", "audit_issues", "audit_fixed", "audit_summary"];
 const isFlow = (w: DashboardWidget) => w.x === 0 && w.w === 12 && FLOW_KINDS.includes(w.kind);
 
 type Segment = { flow: DashboardWidget } | { grid: DashboardWidget[] };

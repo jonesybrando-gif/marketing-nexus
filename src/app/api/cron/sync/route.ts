@@ -6,6 +6,7 @@ import { syncDueDataAssets } from "@/server/data-sources/sync";
 import { runAllAlerts } from "@/server/alerts";
 import { sendDueScheduledReports } from "@/server/scheduled-reports";
 import { rollForwardBudgets } from "@/server/budget-rollover";
+import { runSiteAuditJobs } from "@/server/site-audit/jobs";
 
 // Scheduled entry point. Call hourly with  Authorization: Bearer $CRON_SECRET
 // (Vercel Cron sends this header automatically when CRON_SECRET is set).
@@ -51,8 +52,16 @@ async function run(req: NextRequest) {
   } catch (e) {
     dataSources = { error: (e as Error).message };
   }
+  // Site audits: start due crawls (cost-capped) and collect finished ones.
+  let siteAudits: unknown;
+  try {
+    siteAudits = await runSiteAuditJobs();
+  } catch (e) {
+    siteAudits = { error: (e as Error).message };
+  }
   return NextResponse.json({
     budgetRollover,
+    siteAudits,
     scheduledReports,
     dataSources,
     synced: results.length,

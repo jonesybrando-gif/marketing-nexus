@@ -20,7 +20,7 @@ import { EditableGrid } from "./editable-grid";
 import { sameWidget } from "./dashboard-editor";
 
 /** The library tab that matches a section (its main data source). */
-const TAB_OF: Record<SectionType, LibraryTab> = { google_ads: "ads", meta_ads: "ads", microsoft_ads: "ads", lsa: "ads", ads: "ads", callrail: "callrail", seo: "gsc", ga4: "ga4", pacing: "ads" };
+const TAB_OF: Record<SectionType, LibraryTab> = { google_ads: "ads", meta_ads: "ads", microsoft_ads: "ads", lsa: "ads", ads: "ads", callrail: "callrail", seo: "gsc", ga4: "ga4", site_audit: "audit", pacing: "ads" };
 
 type Target = { sectionId: string; kind: "kpi" | "line" } | null;
 

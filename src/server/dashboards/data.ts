@@ -2,7 +2,7 @@ import { displayCampaignName } from "@/lib/campaign-name";
 import "server-only";
 import { getClientPerformance, type ClientPerformance } from "../reporting";
 import { metricBreakdown, metricSeries, metricTotals } from "../metrics/query";
-import { callLog, formLog, keywordRankTable, type CallLogFn, type FormLogFn, type KeywordRankTableFn } from "./sources";
+import { callLog, formLog, keywordRankTable, siteAuditSnapshot, type CallLogFn, type FormLogFn, type KeywordRankTableFn, type SiteAuditSnapshot, type SiteAuditSnapshotFn } from "./sources";
 import type { ClientReport } from "../client-report";
 import { comparisonRange, resolveRange, type CompareMode, type DateRange, type RangePreset } from "@/lib/date-ranges";
 import { eachDay, type IsoDate } from "@/lib/pacing/dates";
@@ -14,6 +14,7 @@ import { PLATFORM_LABEL, type PlatformKey } from "@/lib/platforms";
 import { adKpiKey, changeOf, dimensionLabel, metricInfo, SOURCE_LABEL, sourceOf, type MetricInfo } from "@/lib/dashboards/metrics";
 import type { DashboardWidget } from "@/lib/dashboards/types";
 import type { DashboardData, WidgetData } from "@/lib/dashboards/widget-data";
+import { formatDate } from "@/lib/time";
 
 // Resolves every widget of a dashboard for one client and date range (with
 // comparison) into render-ready data. Ad KPIs ("ads.*") come from the ad
@@ -53,10 +54,12 @@ export interface ResolverDeps {
   keywordRankTable: KeywordRankTableFn;
   callLog: CallLogFn;
   formLog: FormLogFn;
+  /** Optional so older test mocks keep working; defaults to the database. */
+  siteAudit?: SiteAuditSnapshotFn;
   adPerformance: (clientId: string, range: DateRange, accountIds?: string[]) => Promise<ClientPerformance>;
 }
 
-export const defaultResolverDeps: ResolverDeps = { metricTotals, metricSeries, metricBreakdown, keywordRankTable, callLog, formLog, adPerformance: getClientPerformance };
+export const defaultResolverDeps: ResolverDeps = { metricTotals, metricSeries, metricBreakdown, keywordRankTable, callLog, formLog, siteAudit: siteAuditSnapshot, adPerformance: getClientPerformance };
 
 /** The ad part of a loaded client report, in the shape the resolver needs. */
 export function adDataFromReport(rep: Pick<ClientReport, "perf" | "cmpPerf" | "client"> & { accountScope?: ClientReport["accountScope"] }): AdData | null {
@@ -102,6 +105,7 @@ const isSeries = (w: DashboardWidget) => w.kind === "line" || w.kind === "area" 
 
 function emptyFor(source: MetricSource | null, linked: MetricSource[], fallback = "No data for this period yet."): WidgetData {
   if (source && !linked.includes(source)) {
+    if (source === "audit") return { kind: "empty", reason: "not_connected", source, message: "Set up the Site Auditor to see this" };
     const what = source === "ads" ? "an ad account" : source === "rank" ? "rank tracking" : SOURCE_LABEL[source];
     return { kind: "empty", reason: "not_connected", source, message: `Connect ${what} to see this` };
   }
@@ -224,6 +228,13 @@ export async function resolveWidgets(widgets: DashboardWidget[], ctx: ResolveCon
       ).catch(() => FAILED),
     );
   }
+  // Site audit widgets: one snapshot per period, shared by every audit widget in it.
+  const audits = new Map<string, Promise<SiteAuditSnapshot | null>>();
+  for (const w of widgets) {
+    if (!w.kind.startsWith("audit_")) continue;
+    const p = periodOf(w);
+    if (!audits.has(p.key)) audits.set(p.key, (deps.siteAudit ?? siteAuditSnapshot)(ctx.clientId, { from: p.range.from, to: p.range.to }).catch(() => null));
+  }
   await Promise.all(jobs);
 
   // 3. Build each widget.
@@ -231,7 +242,7 @@ export async function resolveWidgets(widgets: DashboardWidget[], ctx: ResolveCon
   for (const w of widgets) {
     const p = periodOf(w);
     try {
-      out[w.id] = await buildWidget(w, p, ctx, { totals: totals.get(p.key), series: series.get(p.key), ad: adPerf.get(p.key) ?? null, breakdown: breakdowns.get(w.id), rankings: rankings.get(w.id), calllog: logs.get(w.id) });
+      out[w.id] = await buildWidget(w, p, ctx, { totals: totals.get(p.key), series: series.get(p.key), ad: adPerf.get(p.key) ?? null, breakdown: breakdowns.get(w.id), rankings: rankings.get(w.id), calllog: logs.get(w.id), audit: audits.get(p.key) });
     } catch {
       out[w.id] = FAILED;
     }
@@ -246,6 +257,7 @@ interface Loaded {
   breakdown?: Promise<WidgetData>;
   rankings?: Promise<WidgetData>;
   calllog?: Promise<WidgetData>;
+  audit?: Promise<SiteAuditSnapshot | null>;
 }
 
 async function buildWidget(w: DashboardWidget, p: Period, ctx: ResolveContext, l: Loaded): Promise<WidgetData> {
@@ -271,6 +283,46 @@ async function buildWidget(w: DashboardWidget, p: Period, ctx: ResolveContext, l
       return buildSeries(w, p, ctx, l);
     case "kpi":
       return buildKpi(w, p, ctx, l);
+    case "audit_score":
+    case "audit_issues":
+    case "audit_fixed":
+    case "audit_summary":
+      return buildAudit(w, ctx, await l.audit, p.range.to);
+  }
+}
+
+/** Site audit widgets from the period's snapshot. */
+export function buildAudit(w: DashboardWidget, ctx: Pick<ResolveContext, "linked">, s: SiteAuditSnapshot | null | undefined, periodEnd?: IsoDate): WidgetData {
+  if (s === null) return FAILED;
+  if (!s?.latest) return emptyFor("audit", ctx.linked, periodEnd ? `No site audit had finished by ${formatDate(periodEnd, { month: "short", day: "numeric", year: "numeric" })}.` : "No completed site audit yet.");
+  const crawledAt = s.latest.finishedAt;
+  switch (w.kind) {
+    case "audit_score":
+      return {
+        kind: "audit_score",
+        score: s.latest.score,
+        previous: s.baseline?.score ?? null,
+        comparedAt: s.baseline?.finishedAt ?? null,
+        pages: s.latest.pages,
+        errorPages: s.latest.errorPages,
+        crawledAt,
+        trend: { dates: s.trend.map((t) => t.date), scores: s.trend.map((t) => t.score) },
+      };
+    case "audit_issues": {
+      const open = s.issues.filter((i) => i.change !== "fixed");
+      if (!open.length) return { kind: "empty", reason: "no_data", source: "audit", message: "The latest crawl found no issues." };
+      return { kind: "audit_issues", rows: open.slice(0, 10), total: open.length, crawledAt, hasPrevious: !!s.baseline };
+    }
+    case "audit_fixed": {
+      const fixed = s.issues.filter((i) => i.change === "fixed");
+      if (!s.baseline) return { kind: "empty", reason: "no_data", source: "audit", message: "Fixes show after the second crawl." };
+      return { kind: "audit_fixed", rows: fixed, since: s.baseline.finishedAt, crawledAt };
+    }
+    case "audit_summary":
+      if (!s.latest.summary) return { kind: "empty", reason: "no_data", source: "audit", message: "The AI summary isn't available for the latest crawl." };
+      return { kind: "audit_summary", overview: s.latest.summary.overview, fixes: s.latest.summary.fixes, regressions: s.latest.summary.regressions, crawledAt };
+    default:
+      return FAILED;
   }
 }
 

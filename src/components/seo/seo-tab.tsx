@@ -112,6 +112,7 @@ async function SeoContent({ clientId, range, cmpRange, canEdit }: { clientId: st
   const ctrNow = now?.["gsc.ctr"] ?? null;
   const ctrBefore = before?.["gsc.ctr"] ?? null;
 
+  const multiLocation = new Set(ranked.map((k) => k.locationCode)).size > 1;
   const movedKeywords = [...ranked].sort((a, b) => Math.abs(drop(b)) - Math.abs(drop(a)) || (a.position ?? 999) - (b.position ?? 999)).slice(0, 10);
   const clicksFor = (k: KeywordRankRow) => queriesNow.find((q) => q.value.toLowerCase() === k.keyword.toLowerCase())?.metrics["gsc.clicks"] ?? null;
   const topQueries = queriesNow.slice(0, 10);
@@ -143,13 +144,13 @@ async function SeoContent({ clientId, range, cmpRange, canEdit }: { clientId: st
       )}
 
       {ranked.length > 0 && (
-        <Section title="Tracked keywords" aside={<>Biggest moves first · <Link href={`/clients/${clientId}/rankings`} className="text-brand-text hover:underline">All {ranked.length}</Link></>} footer="Positions are checked daily for the location and device you chose. Clicks come from Search Console when Google reports that exact search.">
+        <Section title="Tracked keywords" aside={<>Biggest moves first · <Link href={`/clients/${clientId}/rankings`} className="text-brand-text hover:underline">All {ranked.length}</Link></>} footer="Positions are checked daily for each keyword's location and device. Clicks come from Search Console when Google reports that exact search.">
           <ResponsiveRows
             rows={movedKeywords}
             rowKey={(k) => k.keywordId}
             head={[{ label: "Keyword" }, { label: "Position", align: "right" }, { label: "Change", align: "right" }, { label: "Clicks", align: "right" }, { label: "Ranking page" }]}
             cells={(k) => [
-              <span key="k" className="font-medium">{k.keyword}</span>,
+              <span key="k" className="font-medium">{k.keyword}{multiLocation && <span className="block text-xs font-normal text-text-3">{k.locationName} · {k.device}</span>}</span>,
               k.position === null ? <span key="p" className="text-text-3">Not in top 100</span> : formatNumber(k.position, 0),
               <PositionChange key="c" change={k.change} out={k.position === null && k.start !== null} />,
               n0(clicksFor(k)),
@@ -157,7 +158,7 @@ async function SeoContent({ clientId, range, cmpRange, canEdit }: { clientId: st
             ]}
             mobile={(k) => (
               <div className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-0.5 [&>*:nth-child(even)]:text-right">
-                <span className="text-sm font-medium">{k.keyword}</span>
+                <span className="text-sm font-medium">{k.keyword}{multiLocation && <span className="block text-xs font-normal text-text-3">{k.locationName}</span>}</span>
                 <span className="text-lg font-semibold tabular">{k.position ?? "—"}</span>
                 <span className="text-[13px] text-text-2">{clicksFor(k) !== null ? `${n0(clicksFor(k))} clicks` : k.url ? pathOf(k.url) : ""}</span>
                 <PositionChange change={k.change} out={k.position === null && k.start !== null} />

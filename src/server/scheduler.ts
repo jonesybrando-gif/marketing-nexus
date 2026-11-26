@@ -5,6 +5,7 @@ import { syncDueDataAssets } from "./data-sources/sync";
 import { runAllAlerts } from "./alerts";
 import { sendDueScheduledReports } from "./scheduled-reports";
 import { rollForwardBudgets } from "./budget-rollover";
+import { hasActiveCrawls, pollActiveAudits, runSiteAuditJobs } from "./site-audit/jobs";
 
 // Built-in hourly job for hosts that keep the app running (Railway, Render,
 // a VPS). Does the same work as GET /api/cron/sync, so no external scheduler
@@ -45,8 +46,31 @@ async function tick() {
     if (data.length) console.log(`[scheduler] synced ${data.length} data source(s), ${data.filter((r) => r.status === "FAILED").length} failed`);
   } catch (e) {
     console.error("[scheduler] data source sync failed", e);
+  }
+  // Site audits: start due crawls (cost-capped) and collect finished ones.
+  try {
+    const audits = await runSiteAuditJobs();
+    if (audits.started || audits.completed || audits.failed) console.log(`[scheduler] site audits: ${audits.started} started, ${audits.completed} completed, ${audits.failed} failed, ${audits.skipped} skipped`);
+  } catch (e) {
+    console.error("[scheduler] site audits failed", e);
   } finally {
     running = false;
+  }
+}
+
+const CRAWL_POLL_MS = 2 * 60_000;
+let polling = false;
+
+/** While a crawl is running, collect it within minutes rather than at the next hourly tick. */
+async function pollCrawls() {
+  if (polling || running) return;
+  polling = true;
+  try {
+    if (await hasActiveCrawls()) await pollActiveAudits();
+  } catch (e) {
+    console.error("[scheduler] site audit poll failed", e);
+  } finally {
+    polling = false;
   }
 }
 
@@ -59,4 +83,5 @@ export function startScheduler() {
     void tick();
     setInterval(() => void tick(), HOUR);
   }, 60_000); // first run a minute after start-up
+  setInterval(() => void pollCrawls(), CRAWL_POLL_MS);
 }

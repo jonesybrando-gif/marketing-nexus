@@ -11,9 +11,10 @@ export { buildKeywordRankRows, type KeywordRankRow, type KeywordRankTableOptions
 import { buildKeywordRankRows, type KeywordRankRow, type KeywordRankTableOptions } from "./rankings-rows";
 
 /**
- * Rows for the "rankings" widget: every active tracked keyword of the client
- * (one row per keyword and device) with its latest position, change, best
- * position, ranking URL, SERP features and daily history.
+ * Rows for the "rankings" widget: every tracked item of the client (one row
+ * per keyword, location and device; paused items included, archived ones not)
+ * with its latest position, change, best position, ranking URL, SERP features
+ * and daily history.
  *
  *   const rows = await keywordRankTable(clientId, { days: 30, limit: 50 });
  *
@@ -27,9 +28,10 @@ export async function keywordRankTable(clientId: string, opts: KeywordRankTableO
     const c = await prisma.client.findUnique({ where: { id: clientId }, select: { timezone: true } });
     to = todayInTimeZone(c?.timezone ?? "America/New_York");
   }
+  // Active and paused items; archived ones (replaced or put away) are left out.
   const keywords = await prisma.trackedKeyword.findMany({
-    where: { clientId, active: true, asset: { kind: "RANK_PROJECT" } },
-    select: { id: true, keyword: true, device: true, locationCode: true },
+    where: { clientId, archivedAt: null, asset: { kind: "RANK_PROJECT" }, ...(opts.locationCode ? { locationCode: opts.locationCode } : {}) },
+    select: { id: true, keyword: true, device: true, locationCode: true, locationName: true, active: true },
   });
   if (!keywords.length) return [];
   const ids = keywords.map((k) => k.id);

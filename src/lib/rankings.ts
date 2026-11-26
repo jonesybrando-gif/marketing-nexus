@@ -1,17 +1,31 @@
 // Pure helpers for DataForSEO rank tracking, shared by the setup page (client
 // and server) and the sync code. No DB or network access here.
 
+/** Most tracked items (keyword × location × device) checked daily per client. */
 export const MAX_KEYWORDS_PER_CLIENT = 500;
-/** DataForSEO Standard queue, Google organic, about $0.0006 per keyword check. */
-export const COST_PER_CHECK_USD = 0.0006;
+/**
+ * Fallback DataForSEO Standard-queue price per keyword check (Google organic).
+ * The live value comes from config: serpCheckPriceUsd() in
+ * src/server/data-sources/dataforseo/pricing.ts (DATAFORSEO_SERP_PRICE_USD).
+ */
+export const DEFAULT_SERP_CHECK_PRICE_USD = 0.0006;
 export const DEFAULT_LOCATION_CODE = 2840;
+export const DEFAULT_LOCATION_NAME = "United States";
 export const DEFAULT_LANGUAGE_CODE = "en";
+/** New rank projects default to mobile: most local searches are on phones. */
+export const DEFAULT_DEVICE: RankDeviceSetting = "mobile";
 
 export type RankDevice = "desktop" | "mobile";
 export type RankDeviceSetting = RankDevice | "both";
 
+/**
+ * Client-level defaults (DataAsset.settings of the RANK_PROJECT). They only
+ * pre-fill the add-keywords panel: every TrackedKeyword carries its own
+ * location and device.
+ */
 export interface RankProjectSettings {
   locationCode: number;
+  locationName?: string;
   languageCode: string;
   device: RankDeviceSetting;
   searchEngine: "google";
@@ -52,16 +66,56 @@ export const COMMON_LOCATIONS: { group: string; items: { code: number; name: str
   {
     group: "Cities",
     items: [
-      { code: 1015254, name: "Atlanta, GA" }, { code: 1026201, name: "Austin, TX" }, { code: 1016367, name: "Chicago, IL" },
-      { code: 1026339, name: "Dallas, TX" }, { code: 1026481, name: "Houston, TX" }, { code: 1013962, name: "Los Angeles, CA" },
-      { code: 1015116, name: "Miami, FL" }, { code: 1023191, name: "New York, NY" }, { code: 1013462, name: "Phoenix, AZ" },
-      { code: 1014218, name: "San Diego, CA" }, { code: 1014221, name: "San Francisco, CA" }, { code: 1027744, name: "Seattle, WA" },
+      { code: 1015254, name: "Atlanta, Georgia" }, { code: 1026201, name: "Austin, Texas" }, { code: 1016367, name: "Chicago, Illinois" },
+      { code: 1026339, name: "Dallas, Texas" }, { code: 1026481, name: "Houston, Texas" }, { code: 1013962, name: "Los Angeles, California" },
+      { code: 1015116, name: "Miami, Florida" }, { code: 1023191, name: "New York, New York" }, { code: 1013462, name: "Phoenix, Arizona" },
+      { code: 1014218, name: "San Diego, California" }, { code: 1014221, name: "San Francisco, California" }, { code: 1027744, name: "Seattle, Washington" },
     ],
   },
 ];
 
 const LOCATION_NAME = new Map(COMMON_LOCATIONS.flatMap((g) => g.items.map((i) => [i.code, i.name] as const)));
+/** Display name for a code from the built-in list, else "Location <code>". Prefer a stored locationName. */
 export const locationName = (code: number): string => LOCATION_NAME.get(code) ?? `Location ${code}`;
+
+/** "Dublin,California,United States" → "Dublin, California, United States" (DataForSEO joins parts with bare commas). */
+export function formatLocationName(dfsName: string): string {
+  return dfsName.split(",").map((p) => p.trim()).filter(Boolean).join(", ");
+}
+
+/** Short label for tables: drops a trailing "United States" (most clients are US), keeps the rest. */
+export function shortLocationName(name: string | null | undefined, code?: number): string {
+  const n = name?.trim() || (code ? locationName(code) : "");
+  if (n === "United States") return n;
+  return n.replace(/,\s*United States$/, "");
+}
+
+export const US_STATES: Record<string, string> = {
+  AL: "Alabama", AK: "Alaska", AZ: "Arizona", AR: "Arkansas", CA: "California", CO: "Colorado", CT: "Connecticut", DE: "Delaware",
+  DC: "District of Columbia", FL: "Florida", GA: "Georgia", HI: "Hawaii", ID: "Idaho", IL: "Illinois", IN: "Indiana", IA: "Iowa",
+  KS: "Kansas", KY: "Kentucky", LA: "Louisiana", ME: "Maine", MD: "Maryland", MA: "Massachusetts", MI: "Michigan", MN: "Minnesota",
+  MS: "Mississippi", MO: "Missouri", MT: "Montana", NE: "Nebraska", NV: "Nevada", NH: "New Hampshire", NJ: "New Jersey", NM: "New Mexico",
+  NY: "New York", NC: "North Carolina", ND: "North Dakota", OH: "Ohio", OK: "Oklahoma", OR: "Oregon", PA: "Pennsylvania", RI: "Rhode Island",
+  SC: "South Carolina", SD: "South Dakota", TN: "Tennessee", TX: "Texas", UT: "Utah", VT: "Vermont", VA: "Virginia", WA: "Washington",
+  WV: "West Virginia", WI: "Wisconsin", WY: "Wyoming",
+};
+
+/** Countries offered in the location search (DataForSEO loads one country's list at a time). */
+export const LOCATION_COUNTRIES: { iso: string; name: string }[] = [
+  { iso: "US", name: "United States" }, { iso: "CA", name: "Canada" }, { iso: "GB", name: "United Kingdom" }, { iso: "IE", name: "Ireland" },
+  { iso: "AU", name: "Australia" }, { iso: "NZ", name: "New Zealand" }, { iso: "MX", name: "Mexico" }, { iso: "DE", name: "Germany" },
+  { iso: "FR", name: "France" }, { iso: "ES", name: "Spain" }, { iso: "IN", name: "India" },
+];
+
+/** A DataForSEO location as the search returns it. */
+export interface RankLocationOption {
+  code: number;
+  /** Display form, e.g. "Dublin, California, United States". */
+  name: string;
+  /** DataForSEO type: "City", "County", "DMA Region", "State", "Postal Code", "Country", … */
+  type: string;
+  countryIso: string;
+}
 
 /** Bare host of a domain or URL: lowercase, no protocol/path/port, no leading "www.". "" if invalid. */
 export function normalizeDomain(input: string): string {
@@ -91,19 +145,27 @@ export function parseKeywordList(text: string): string[] {
   return [...out];
 }
 
-/** Daily and 30-day cost estimate for `keywords` tracked on `device`. */
-export function rankCostEstimate(keywords: number, device: RankDeviceSetting): { checksPerDay: number; perDay: number; perMonth: number } {
-  const checksPerDay = keywords * devicesFor(device).length;
-  const perDay = checksPerDay * COST_PER_CHECK_USD;
+/**
+ * Cost of checking `items` tracked items (keyword × location × device) once a
+ * day at `pricePerCheck` USD: per day and per 30-day month.
+ */
+export function rankCostEstimate(items: number, pricePerCheck = DEFAULT_SERP_CHECK_PRICE_USD): { checksPerDay: number; perDay: number; perMonth: number } {
+  const checksPerDay = Math.max(0, items);
+  const perDay = checksPerDay * pricePerCheck;
   return { checksPerDay, perDay, perMonth: perDay * 30 };
 }
 
+/** How many tracked items `keywords` keywords make on `device` ("both" = two each). */
+export const trackedItemCount = (keywords: number, device: RankDeviceSetting) => keywords * devicesFor(device).length;
+
 export function readRankSettings(raw: unknown): RankProjectSettings & { pendingTasks: PendingRankTask[]; taskErrors: RankTaskError[] } {
   const s = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
-  const device = s.device === "mobile" || s.device === "both" ? s.device : "desktop";
+  const device = s.device === "mobile" || s.device === "both" || s.device === "desktop" ? s.device : DEFAULT_DEVICE;
   const loc = Number(s.locationCode);
+  const code = Number.isInteger(loc) && loc > 0 ? loc : DEFAULT_LOCATION_CODE;
   return {
-    locationCode: Number.isInteger(loc) && loc > 0 ? loc : DEFAULT_LOCATION_CODE,
+    locationCode: code,
+    locationName: typeof s.locationName === "string" && s.locationName ? s.locationName : code === DEFAULT_LOCATION_CODE ? DEFAULT_LOCATION_NAME : locationName(code),
     languageCode: typeof s.languageCode === "string" && s.languageCode ? s.languageCode : DEFAULT_LANGUAGE_CODE,
     device,
     searchEngine: "google",

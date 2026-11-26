@@ -12,7 +12,7 @@ export const MAX_H = 16;
 export const MAX_TEXT = 5000;
 export const MAX_TITLE = 120;
 
-export const WIDGET_KINDS: WidgetKind[] = ["kpi", "line", "area", "bar", "table", "pie", "rankings", "calllog", "formlog", "text", "pacing", "campaigns"];
+export const WIDGET_KINDS: WidgetKind[] = ["kpi", "line", "area", "bar", "table", "pie", "rankings", "calllog", "formlog", "text", "pacing", "campaigns", "audit_score", "audit_issues", "audit_fixed", "audit_summary"];
 
 /** Kinds that chart or tabulate metrics, and how many metrics each takes. */
 export const METRIC_LIMITS: Partial<Record<WidgetKind, { min: number; max: number }>> = {
@@ -38,6 +38,10 @@ export const MIN_SIZE: Record<WidgetKind, { w: number; h: number }> = {
   text: { w: 2, h: 1 },
   pacing: { w: 6, h: 4 },
   campaigns: { w: 6, h: 4 },
+  audit_score: { w: 3, h: 3 },
+  audit_issues: { w: 6, h: 4 },
+  audit_fixed: { w: 4, h: 3 },
+  audit_summary: { w: 4, h: 3 },
 };
 
 /** Size a new widget starts at. */
@@ -54,6 +58,10 @@ export const DEFAULT_SIZE: Record<WidgetKind, { w: number; h: number }> = {
   text: { w: 4, h: 2 },
   pacing: { w: 12, h: 6 },
   campaigns: { w: 12, h: 7 },
+  audit_score: { w: 5, h: 4 },
+  audit_issues: { w: 12, h: 7 },
+  audit_fixed: { w: 6, h: 4 },
+  audit_summary: { w: 7, h: 4 },
 };
 
 const RANGE_PRESETS: RangePreset[] = ["mtd", "last_month", "last_7", "last_30", "last_90"];

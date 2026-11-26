@@ -5,6 +5,8 @@ import "server-only";
 // header and never logged or included in error messages.
 
 export const DFS_BASE = "https://api.dataforseo.com/v3";
+/** API root; DATAFORSEO_API_BASE=https://sandbox.dataforseo.com/v3 points everything at the free sandbox (tests). */
+export const dfsBase = () => process.env.DATAFORSEO_API_BASE?.replace(/\/$/, "") || DFS_BASE;
 
 export type FetchLike = typeof fetch;
 
@@ -31,7 +33,7 @@ export interface DfsTask<R = unknown> {
   result: R[] | null;
 }
 
-interface DfsResponse<R> {
+export interface DfsResponse<R> {
   status_code: number;
   status_message: string;
   tasks?: DfsTask<R>[];
@@ -41,10 +43,10 @@ function authHeader(secret: string) {
   return `Basic ${Buffer.from(secret, "utf8").toString("base64")}`;
 }
 
-async function call<R>(secret: string, path: string, init: { method: "GET" | "POST"; body?: unknown }, fetchImpl: FetchLike = fetch): Promise<DfsResponse<R>> {
+export async function call<R>(secret: string, path: string, init: { method: "GET" | "POST"; body?: unknown }, fetchImpl: FetchLike = fetch): Promise<DfsResponse<R>> {
   let res: Response;
   try {
-    res = await fetchImpl(`${DFS_BASE}${path}`, {
+    res = await fetchImpl(`${dfsBase()}${path}`, {
       method: init.method,
       headers: { Authorization: authHeader(secret), "Content-Type": "application/json" },
       body: init.body === undefined ? undefined : JSON.stringify(init.body),
@@ -129,4 +131,83 @@ export async function getSerpTask(secret: string, id: string, fetchImpl?: FetchL
   const t = r.tasks?.[0];
   if (!t) throw new DataForSeoError(`DataForSEO returned no task for ${id}.`);
   return t;
+}
+
+export interface DfsLocation {
+  location_code: number;
+  location_name: string;
+  location_code_parent: number | null;
+  country_iso_code: string;
+  location_type: string;
+}
+
+/** GET /v3/serp/google/locations/{country}: every Google location in one country (free). */
+export async function getSerpLocations(secret: string, countryIso: string, fetchImpl?: FetchLike): Promise<DfsLocation[]> {
+  if (!/^[a-z]{2}$/i.test(countryIso)) throw new Error("Country must be a two-letter ISO code");
+  const r = await call<DfsLocation>(secret, `/serp/google/locations/${countryIso.toLowerCase()}`, { method: "GET" }, fetchImpl);
+  const t = r.tasks?.[0];
+  if (!t || t.status_code !== 20000) throw new DataForSeoError(`DataForSEO error ${t?.status_code ?? r.status_code}: ${t?.status_message ?? r.status_message}`, t?.status_code);
+  return (t.result ?? []).filter((l): l is DfsLocation => !!l && typeof l.location_code === "number" && typeof l.location_name === "string");
+}
+
+// --- On-Page API (Site Auditor) ----------------------------------------------
+
+export interface OnPageTaskInput {
+  target: string;
+  max_crawl_pages: number;
+  load_resources: boolean;
+  enable_javascript: boolean;
+  calculate_keyword_density: false;
+  /** Our SiteAudit id, echoed back in task data. */
+  tag: string;
+  /** Start from this URL (keeps the crawl on the chosen protocol and host). */
+  start_url?: string;
+}
+
+/** POST /v3/on_page/task_post: starts a crawl. Returns the task (status 20100 = created) with its cost. */
+export async function postOnPageTask(secret: string, task: OnPageTaskInput, fetchImpl?: FetchLike): Promise<DfsTask> {
+  const r = await call(secret, "/on_page/task_post", { method: "POST", body: [task] }, fetchImpl);
+  const t = r.tasks?.[0];
+  if (!t) throw new DataForSeoError("DataForSEO returned no task for the crawl.");
+  return t;
+}
+
+export interface OnPageSummary {
+  crawl_progress?: string;
+  crawl_status?: { max_crawl_pages?: number; pages_in_queue?: number; pages_crawled?: number } | null;
+  crawl_stop_reason?: string | null;
+  domain_info?: { checks?: Record<string, boolean | null> | null; total_pages?: number | null } | null;
+  page_metrics?: { onpage_score?: number | null } | null;
+}
+
+/** On-Page task result (summary, pages, …). Throws on task-level errors except "not ready", which returns null. */
+async function onPageResult<R>(secret: string, path: string, body: unknown, fetchImpl?: FetchLike): Promise<{ result: R | null; cost: number }> {
+  const r = await call<R>(secret, path, body === undefined ? { method: "GET" } : { method: "POST", body: [body] }, fetchImpl);
+  const t = r.tasks?.[0];
+  if (!t) throw new DataForSeoError(`DataForSEO returned no task for ${path}.`);
+  if (isNotReadyCode(t.status_code)) return { result: null, cost: t.cost ?? 0 };
+  if (t.status_code !== 20000) throw new DataForSeoError(`DataForSEO error ${t.status_code}: ${t.status_message}`, t.status_code);
+  return { result: t.result?.[0] ?? null, cost: t.cost ?? 0 };
+}
+
+/** GET /v3/on_page/summary/{id}: progress ("in_progress" | "finished") and domain-level totals. */
+export function getOnPageSummary(secret: string, id: string, fetchImpl?: FetchLike) {
+  return onPageResult<OnPageSummary>(secret, `/on_page/summary/${encodeURIComponent(id)}`, undefined, fetchImpl);
+}
+
+export interface OnPageList<I> { crawl_progress?: string; total_items_count?: number; items_count?: number; items?: I[] | null }
+
+/** POST /v3/on_page/{endpoint} with { id, limit, offset, filters? }. */
+export function getOnPageList<I>(secret: string, endpoint: "pages" | "non_indexable" | "links" | "redirect_chains", id: string, opts: { limit: number; offset?: number; filters?: unknown[] }, fetchImpl?: FetchLike) {
+  return onPageResult<OnPageList<I>>(secret, `/on_page/${endpoint}`, { id, limit: opts.limit, offset: opts.offset ?? 0, ...(opts.filters ? { filters: opts.filters } : {}) }, fetchImpl);
+}
+
+export interface LighthouseResult {
+  categories?: { performance?: { score?: number | null } | null } | null;
+  audits?: Record<string, { numericValue?: number | null } | undefined> | null;
+}
+
+/** POST /v3/on_page/lighthouse/live/json (mobile, performance only). */
+export function getLighthouse(secret: string, url: string, fetchImpl?: FetchLike) {
+  return onPageResult<LighthouseResult>(secret, "/on_page/lighthouse/live/json", { url, for_mobile: true, categories: ["performance"] }, fetchImpl);
 }
