@@ -90,6 +90,8 @@ export interface AiWebContext {
   } | null;
   /** Sources the agency left out of this client's report: not discussed (not "not connected"). */
   notInReport?: ("ga4" | "gsc" | "rank")[];
+  /** Linked to the client but no figures for this period yet (e.g. still importing): not "not connected". */
+  awaitingData?: ("ga4" | "gsc")[];
   /** CallRail call tracking, when linked: totals and calls by source. */
   calls?: {
     totals: AiWebMetric[];
@@ -213,7 +215,8 @@ export function buildAiContext(i: AiContextInput): string {
     if (w.analytics) {
       lines.push("Website (Google Analytics 4, all traffic sources):");
       for (const x of w.analytics) lines.push(`- ${line(x)}`);
-    } else if (!w.notInReport?.includes("ga4")) lines.push("- Google Analytics is not connected for this client.");
+    } else if (w.awaitingData?.includes("ga4")) lines.push("- Google Analytics is linked, but has no figures for this period yet (data may still be importing). It is connected: don't say it isn't.");
+    else if (!w.notInReport?.includes("ga4")) lines.push("- Google Analytics is not connected for this client.");
     if (w.channels.length) {
       lines.push("Website visits and goals by channel:");
       for (const ch of w.channels) lines.push(`- ${ch.channel}: visits ${ch.visits.value}${ch.visits.changePct === null ? "" : ` (${pct(ch.visits.changePct)})`}; website goals ${ch.goals.value}${ch.goals.changePct === null ? "" : ` (${pct(ch.goals.changePct)})`}`);
@@ -221,7 +224,8 @@ export function buildAiContext(i: AiContextInput): string {
     if (w.search) {
       lines.push("Google organic search (Search Console):");
       for (const x of w.search) lines.push(`- ${line(x)}`);
-    } else if (!w.notInReport?.includes("gsc")) lines.push("- Search Console is not connected for this client.");
+    } else if (w.awaitingData?.includes("gsc")) lines.push("- Search Console is linked, but has no figures for this period yet (data may still be importing). It is connected: don't say it isn't.");
+    else if (!w.notInReport?.includes("gsc")) lines.push("- Search Console is not connected for this client.");
     const r = w.rankings;
     if (r && r.tracked > 0) {
       lines.push(`Tracked keyword rankings (${r.tracked} keywords): ${r.inTop3} in the top 3, ${r.inTop10} in the top 10; over the last ${r.changeDays} days ${r.improved} moved up and ${r.declined} moved down.`);

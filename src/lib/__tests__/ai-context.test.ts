@@ -112,6 +112,13 @@ describe("AI grounding context: website and organic search", () => {
     expect(text).toContain("never add them together");
   });
 
+  it("says a linked source with no figures yet is still importing, not that it isn't connected", () => {
+    const text = buildAiContext({ ...base, web: { analytics: null, channels: [], search: null, rankings: null, awaitingData: ["ga4", "gsc"] } });
+    expect(text).toContain("Google Analytics is linked, but has no figures for this period yet");
+    expect(text).toContain("Search Console is linked, but has no figures for this period yet");
+    expect(text).not.toContain("not connected");
+  });
+
   it("says which sources aren't connected, and leaves the section out when none are", () => {
     const text = buildAiContext({ ...base, web: { analytics: null, channels: [], search: null, rankings: null } });
     expect(text).toContain("Google Analytics is not connected");

@@ -2,7 +2,7 @@
 import "dotenv/config";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import Anthropic from "@anthropic-ai/sdk";
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, type Prisma } from "@prisma/client";
 import { setAiClientForTests } from "../ai/assistant";
 import { loadClientReport } from "../client-report";
 import { clientFacingSummary, getExecutiveSummary, setSummaryApproval } from "../exec-summary";
@@ -88,6 +88,43 @@ describe.skipIf(!hasDb)("executive summary (database)", () => {
     expect(await clientFacingSummary(rep)).toMatchObject({ source: "auto" });
     // Another client's id can't be approved through this client.
     expect(await setSummaryApproval("someone-else", saved.insightId!, user.id, true)).toBe(false);
+  });
+
+  it("rewrites an AI summary when a data source is linked or finishes importing, keeping edited text", async () => {
+    const rep = await loadClientReport(clientId, { range: "last_30", compare: "none" });
+    calls = 0;
+    await getExecutiveSummary(rep, { generate: true });
+    await getExecutiveSummary(rep, { generate: true });
+    expect(calls).toBe(1); // cached while nothing changes
+
+    // GA4 linked after the summary was written, its first import still running: written again.
+    const ga4 = await prisma.dataAsset.create({ data: { clientId, kind: "GA4_PROPERTY", externalId: "517982070", name: "GA4" } });
+    await getExecutiveSummary(rep, { generate: true });
+    expect(calls).toBe(2);
+    await getExecutiveSummary(rep, { generate: true });
+    expect(calls).toBe(2);
+
+    // The import finishes (data now covers the period): written again, once.
+    await prisma.dataAsset.update({ where: { id: ga4.id }, data: { dataCompleteThrough: isoToDate(rep.range.to) } });
+    await getExecutiveSummary(rep, { generate: true });
+    expect(calls).toBe(3);
+    const row = await prisma.aiInsight.findFirstOrThrow({ where: { clientId, kind: "exec_summary", rangeFrom: rep.range.from, rangeTo: rep.range.to }, orderBy: { createdAt: "desc" } });
+    expect((row.content as { sources?: string }).sources).toBe("GA4_PROPERTY:ready");
+
+    // A summary saved before sources were recorded is written again (fixes summaries already cached in production).
+    const legacy = { ...(row.content as object) } as Record<string, unknown>;
+    delete legacy.sources;
+    await prisma.aiInsight.update({ where: { id: row.id }, data: { content: legacy as Prisma.InputJsonValue } });
+    await getExecutiveSummary(rep, { generate: true });
+    expect(calls).toBe(4);
+
+    // Text a person edited is kept even when the sources change.
+    const latest = await prisma.aiInsight.findFirstOrThrow({ where: { clientId, kind: "exec_summary", rangeFrom: rep.range.from, rangeTo: rep.range.to }, orderBy: { createdAt: "desc" } });
+    await prisma.aiInsight.update({ where: { id: latest.id }, data: { content: { ...(latest.content as object), editedAt: new Date().toISOString(), summary: { ...((latest.content as { summary: object }).summary), takeaway: "Edited by hand." } } } });
+    await prisma.dataAsset.create({ data: { clientId, kind: "GSC_SITE", externalId: "sc-domain:galaxyparties.biz", name: "GSC" } });
+    expect(await getExecutiveSummary(rep, { generate: true })).toMatchObject({ takeaway: "Edited by hand." });
+    expect(calls).toBe(4);
+    await prisma.dataAsset.deleteMany({ where: { clientId } });
   });
 
   it("falls back to the automatic summary when the AI fails or the layout says so", async () => {

@@ -9,7 +9,7 @@ import { autoExecutiveSummary, fromLegacySummary, MAX_STEPS, type ChannelUpdate,
 
 /** At most this many "By channel" updates. */
 const MAX_CHANNELS = 10;
-import { diffDays } from "@/lib/pacing/dates";
+import { dateToIso, diffDays } from "@/lib/pacing/dates";
 
 // The executive summary at the top of a report, for whatever date range is
 // being viewed. AI-written when the layout asks for it and a key is set,
@@ -49,7 +49,7 @@ export const wantsAiSummary = (rep: ClientReport) => rep.template.executiveAi &&
 
 const strings = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => typeof x === "string");
 
-type StoredContent = { v?: unknown; compare?: unknown; approvedAt?: unknown; summary?: Record<string, unknown>; notes?: unknown; editedAt?: unknown; editedById?: unknown; origin?: unknown };
+type StoredContent = { v?: unknown; compare?: unknown; sources?: unknown; approvedAt?: unknown; summary?: Record<string, unknown>; notes?: unknown; editedAt?: unknown; editedById?: unknown; origin?: unknown };
 
 /** Agency edits and notes on a saved row: what the summary shows on top of the content. */
 const extras = (c: StoredContent): Pick<ExecSummary, "notes" | "edited"> => ({
@@ -84,8 +84,25 @@ function parseStored(c: StoredContent, rep: ClientReport, opts: { legacy?: boole
   return null;
 }
 
-/** The latest saved AI summary for this range (kept a day), with its id and whether it's approved for clients. */
-async function cached(rep: ClientReport, now: Date, opts: { editedOnly?: boolean } = {}): Promise<{ id: string; approved: boolean; content: ExecutiveSummaryContent; stored: StoredContent } | null> {
+/**
+ * The client's data sources and whether each has figures for the period, e.g.
+ * "GA4_PROPERTY:importing,GSC_SITE:ready". Saved with each AI summary: when it
+ * changes (a source linked or removed, or a first import finishing), the AI
+ * text no longer describes what's connected, so it's written again.
+ */
+export async function dataSourcesKey(clientId: string, range: { from: string }): Promise<string> {
+  const assets = await prisma.dataAsset.findMany({ where: { clientId }, select: { kind: true, dataCompleteThrough: true } });
+  const parts = assets.map((a) => `${a.kind}:${a.dataCompleteThrough && dateToIso(a.dataCompleteThrough) >= range.from ? "ready" : "importing"}`);
+  return [...new Set(parts)].sort().join(",");
+}
+
+/**
+ * The latest saved AI summary for this range (kept a day), with its id and
+ * whether it's approved for clients. With `sources`, an AI summary written for
+ * different data sources (or before they were recorded) doesn't count; what a
+ * person wrote or edited is always kept.
+ */
+async function cached(rep: ClientReport, now: Date, opts: { editedOnly?: boolean; sources?: string } = {}): Promise<{ id: string; approved: boolean; content: ExecutiveSummaryContent; stored: StoredContent } | null> {
   const rows = await prisma.aiInsight.findMany({
     where: { clientId: rep.client.id, kind: KIND, rangeFrom: rep.range.from, rangeTo: rep.range.to },
     orderBy: { createdAt: "desc" },
@@ -98,6 +115,8 @@ async function cached(rep: ClientReport, now: Date, opts: { editedOnly?: boolean
     if (!fresh || (opts.editedOnly && !isEdited(c))) continue;
     // An older AI summary nobody edited is rewritten in the current format.
     if (!isEdited(c) && c.v !== VERSION) continue;
+    // ...and when the client's data sources changed since it was written.
+    if (!isEdited(c) && opts.sources !== undefined && c.sources !== opts.sources) continue;
     const content = parseStored(c, rep);
     if (content) return { id: r.id, approved: typeof c.approvedAt === "string", content, stored: c };
   }
@@ -180,8 +199,8 @@ function startGeneration(rep: ClientReport, key: string): Promise<ExecutiveSumma
       const [data, channels] = await Promise.all([aiContextForReport(rep), summaryChannels(rep)]);
       const summary = await draftExecutiveSummary(data, { agencyName: agency.name, days: diffDays(rep.range.from, rep.range.to) + 1, channels });
       // The agency's own notes for this period carry over to the new summary.
-      const notes = await latestNotes(rep);
-      await prisma.aiInsight.create({ data: { clientId: rep.client.id, kind: KIND, content: { v: VERSION, summary: { ...summary }, compare: compareKey(rep), ...(notes ? { notes } : {}) }, model: AI_MODEL, rangeFrom: rep.range.from, rangeTo: rep.range.to } });
+      const [notes, sources] = await Promise.all([latestNotes(rep), dataSourcesKey(rep.client.id, rep.range)]);
+      await prisma.aiInsight.create({ data: { clientId: rep.client.id, kind: KIND, content: { v: VERSION, summary: { ...summary }, compare: compareKey(rep), sources, ...(notes ? { notes } : {}) }, model: AI_MODEL, rangeFrom: rep.range.from, rangeTo: rep.range.to } });
       failedAt.delete(key);
       return summary;
     })()
@@ -234,7 +253,7 @@ export async function getExecutiveSummary(rep: ClientReport, opts: { generate: b
   }
   const key = summaryKey(rep);
   try {
-    const hit = await cached(rep, now);
+    const hit = await cached(rep, now, { sources: await dataSourcesKey(rep.client.id, rep.range) });
     if (hit) return { ...hit.content, source: sourceOf(hit.stored), ...extras(hit.stored), insightId: hit.id, approved: hit.approved };
     if (!opts.generate) return automaticSummary(rep);
     if (opts.generate === "background") {
