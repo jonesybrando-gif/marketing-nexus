@@ -13,7 +13,7 @@ import { resultCount } from "@/lib/portfolio";
 import { summaryLines } from "@/lib/daily-summary";
 import { groupAlertsByCause, visibleAlerts } from "@/lib/alert-groups";
 import { applyEfficiencyAdvice, highCostPerResultClients, portfolioResults } from "./portfolio";
-import { visibleClientsWhere } from "./access";
+import { visibleClientsWhere } from "./client-scope";
 
 const LOOKBACK_DAYS = 35;
 

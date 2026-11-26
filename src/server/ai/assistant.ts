@@ -181,7 +181,8 @@ Accuracy: use only figures in the data. State confirmed findings plainly and mar
   // Keep only the listed channels, in the listed order.
   const byName = new Map((out.channels ?? []).map((c) => [c.channel.trim().toLowerCase(), c.update.trim()]));
   const channelUpdates = channels.map((c) => ({ channel: c, update: byName.get(c.toLowerCase()) ?? "" })).filter((c) => c.update);
-  return { takeaway: out.takeaway.trim(), happened: out.happened.trim(), channels: channelUpdates, meaning: out.meaning.trim(), recommendations: clean(out.recommendations), nextSteps: clean(out.nextSteps ?? []) };
+  // No channel updates: leave `channels` out, as a summary read back from the cache does, so both look the same.
+  return { takeaway: out.takeaway.trim(), happened: out.happened.trim(), ...(channelUpdates.length ? { channels: channelUpdates } : {}), meaning: out.meaning.trim(), recommendations: clean(out.recommendations), nextSteps: clean(out.nextSteps ?? []) };
 }
 
 // --- Client email -----------------------------------------------------------

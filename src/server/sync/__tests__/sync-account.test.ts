@@ -23,7 +23,7 @@ function fakeAdapter(rowsFor: (from: string, to: string) => RemoteDailyRow[], ov
     exchangeCode: async () => ({ accessToken: "x" }),
     refresh: async () => ({ accessToken: "x" }),
     listAccounts: async () => [],
-    listCampaigns: async () => [{ externalId: "c1", name: "Search", status: "ENABLED", dailyBudgetMinor: 20000 }],
+    listCampaigns: async () => [{ externalId: "c1", name: "Search", status: "ENABLED", budgetKind: "DAILY", dailyBudgetMinor: 20000 }],
     fetchDailyPerformance: async (_t, _a, from, to) => ({
       rows: rowsFor(from, to),
       campaigns: [{ externalId: "c1", name: "Search", status: "ENABLED" }, { externalId: "old", name: "Removed campaign", status: "REMOVED" }],
