@@ -41,3 +41,15 @@ export async function disconnectDataForSeo(): Promise<void> {
   await prisma.dataSourceConnection.update({ where: { id: c.id }, data: { status: "DISCONNECTED", encryptedSecret: null, lastError: null } });
   revalidatePath("/integrations");
 }
+
+/** Admin only: the agency's monthly spending cap for Site Auditor crawls (USD). */
+export async function setSiteAuditCap(_prev: DataForSeoFormState, form: FormData): Promise<DataForSeoFormState> {
+  const user = await requireAdmin();
+  const cap = Number(form.get("cap"));
+  if (!Number.isFinite(cap) || cap < 0 || cap > 10_000) return { errors: ["Enter a monthly cap between $0 and $10,000."] };
+  const rounded = Math.round(cap * 100) / 100;
+  await prisma.agency.update({ where: { id: user.agencyId }, data: { siteAuditMonthlyCapUsd: rounded } });
+  revalidatePath("/integrations");
+  revalidatePath("/site-audits");
+  return { ok: `Saved. New crawls are skipped once this month's site audit spend would pass ${formatUsd(rounded)}.` };
+}

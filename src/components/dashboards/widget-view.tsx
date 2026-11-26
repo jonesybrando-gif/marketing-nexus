@@ -15,6 +15,7 @@ import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/components/ui/cn";
 import { TextContent } from "./text-content";
+import { AuditFixedBody, AuditIssueList, AuditScoreBody, AuditSummaryBody } from "@/components/site-audit/audit-widgets";
 
 
 /** Server-rendered ad sections (budget pacing, campaign table) reused as widgets. */
@@ -52,7 +53,7 @@ export function WidgetView({ widget, data, currency, slots, staff = false, fill 
           <h3 className="truncate text-sm font-semibold" title={title}>{title}</h3>
         </header>
       )}
-      <div className={cn("min-h-0 flex-1 px-4 pb-3", !title && "pt-3", (widget.kind === "table" || widget.kind === "rankings" || widget.kind === "calllog" || widget.kind === "formlog") && "overflow-auto px-0", widget.kind === "text" && "overflow-auto")}>
+      <div className={cn("min-h-0 flex-1 px-4 pb-3", !title && "pt-3", (widget.kind === "table" || widget.kind === "rankings" || widget.kind === "calllog" || widget.kind === "formlog" || widget.kind === "audit_issues") && "overflow-auto px-0", (widget.kind === "audit_summary" || widget.kind === "audit_fixed") && "overflow-auto", widget.kind === "text" && "overflow-auto")}>
         <WidgetBody widget={widget} data={data} currency={currency} staff={staff} />
       </div>
     </section>
@@ -134,6 +135,19 @@ function WidgetBody({ widget, data, currency, staff }: { widget: DashboardWidget
         </Table>
       );
     }
+    case "audit_score":
+      return <AuditScoreBody {...data} />;
+    case "audit_issues":
+      return (
+        <div>
+          <AuditIssueList rows={data.rows} compact />
+          {data.total > data.rows.length && <p className="px-4 pt-1 text-xs text-text-3">Top {data.rows.length} of {data.total} issues.</p>}
+        </div>
+      );
+    case "audit_fixed":
+      return <AuditFixedBody rows={data.rows} since={data.since} />;
+    case "audit_summary":
+      return <AuditSummaryBody overview={data.overview} fixes={data.fixes} regressions={data.regressions} />;
     case "calllog":
       return <CallLog rows={data.rows} total={data.total} timeZone={data.timeZone} />;
     case "formlog":

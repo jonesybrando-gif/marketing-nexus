@@ -4,7 +4,7 @@
 // Dashboards, reports and the AI assistant read metrics only through this
 // catalogue, so a metric key ("ga4.sessions") means the same thing everywhere.
 
-export type MetricSource = "ads" | "ga4" | "gsc" | "gbp" | "callrail" | "facebook" | "instagram" | "rank";
+export type MetricSource = "ads" | "ga4" | "gsc" | "gbp" | "callrail" | "facebook" | "instagram" | "rank" | "audit";
 
 /** "money" values are stored in minor units (cents), like ad spend. "duration" is seconds. */
 export type MetricFormat = "count" | "money" | "pct" | "duration" | "position" | "ratio";

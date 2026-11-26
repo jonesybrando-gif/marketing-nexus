@@ -30,10 +30,11 @@ export const SOURCE_LABEL: Record<MetricSource, string> = {
   facebook: "Facebook page",
   instagram: "Instagram",
   rank: "Google rankings",
+  audit: "Site audit",
 };
 
 /** Order of sources in the widget library. */
-export const SOURCE_ORDER: MetricSource[] = ["ads", "ga4", "gsc", "gbp", "callrail", "facebook", "instagram", "rank"];
+export const SOURCE_ORDER: MetricSource[] = ["ads", "ga4", "gsc", "gbp", "callrail", "facebook", "instagram", "rank", "audit"];
 
 const KIND_TO_FORMAT: Record<string, MetricFormat> = { money: "money", count: "count", pct: "pct", ratio: "ratio" };
 

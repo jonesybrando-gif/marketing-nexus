@@ -1,0 +1,60 @@
+{
+ "version": "0.1.20261117",
+ "status_code": 20000,
+ "status_message": "Ok.",
+ "time": "0 sec.",
+ "cost": 0,
+ "tasks_count": 1,
+ "tasks_error": 0,
+ "tasks": [
+  {
+   "id": "11260041-3282-0324-2000-be3b9654878d",
+   "status_code": 20000,
+   "status_message": "Ok.",
+   "time": "0 sec.",
+   "cost": 0,
+   "result_count": 1,
+   "path": [
+    "v3",
+    "on_page",
+    "lighthouse",
+    "live",
+    "json"
+   ],
+   "data": {
+    "api": "on_page",
+    "function": "lighthouse",
+    "url": "https://dataforseo.com",
+    "for_mobile": true,
+    "categories": [
+     "performance"
+    ]
+   },
+   "result": [
+    {
+     "requestedUrl": "https://dataforseo.com/",
+     "finalUrl": "https://dataforseo.com/",
+     "categories": {
+      "performance": {
+       "score": 0.82
+      }
+     },
+     "audits": {
+      "largest-contentful-paint": {
+       "numericValue": 2247.7675,
+       "displayValue": "2.2\u00a0s"
+      },
+      "cumulative-layout-shift": {
+       "numericValue": 0.01169944696173715,
+       "displayValue": "0.012"
+      },
+      "total-blocking-time": {
+       "numericValue": 28,
+       "displayValue": "30\u00a0ms"
+      }
+     }
+    }
+   ]
+  }
+ ]
+}

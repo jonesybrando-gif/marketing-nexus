@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
-import { connectDataForSeo, disconnectDataForSeo } from "@/server/data-sources/dataforseo/actions";
+import { connectDataForSeo, disconnectDataForSeo, setSiteAuditCap } from "@/server/data-sources/dataforseo/actions";
 import { useFormSubmit } from "@/components/use-form-submit";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
@@ -44,6 +44,23 @@ export function DataForSeoDisconnectButton() {
   return (
     <form action={disconnectDataForSeo}>
       <Button type="submit" size="sm" variant="ghost" title="Stops daily rank checks and removes the stored password. Keywords and history are kept.">Disconnect</Button>
+    </form>
+  );
+}
+
+/** Admin: Site Auditor monthly spending cap. */
+export function SiteAuditCapForm({ cap }: { cap: number }) {
+  const [state, action, pending] = useActionState(setSiteAuditCap, undefined);
+  const form = useFormSubmit(action);
+  return (
+    <form {...form} className="flex flex-wrap items-end gap-2 text-xs" aria-label="Site audit monthly cap">
+      <div className="flex flex-col gap-1">
+        <Label htmlFor="dfs-audit-cap">Site audit monthly cap (USD)</Label>
+        <Input id="dfs-audit-cap" name="cap" type="number" min={0} max={10000} step={1} defaultValue={cap} className="w-32" required />
+      </div>
+      <Button type="submit" size="sm" variant="outline" disabled={pending}>{pending ? "Saving…" : "Save cap"}</Button>
+      {state?.ok && <span className="text-good-ink" role="status">{state.ok}</span>}
+      {state?.errors?.map((e) => <span key={e} className="text-critical-ink" role="alert">{e}</span>)}
     </form>
   );
 }

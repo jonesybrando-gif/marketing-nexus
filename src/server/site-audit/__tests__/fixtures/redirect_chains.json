@@ -1,0 +1,42 @@
+{
+ "version": "0.1.20261117",
+ "status_code": 20000,
+ "status_message": "Ok.",
+ "time": "0 sec.",
+ "cost": 0,
+ "tasks_count": 1,
+ "tasks_error": 0,
+ "tasks": [
+  {
+   "id": "11260041-3282-0216-2000-4332c00707ea",
+   "status_code": 20000,
+   "status_message": "Ok.",
+   "time": "0 sec.",
+   "cost": 0,
+   "result_count": 1,
+   "path": [
+    "v3",
+    "on_page",
+    "redirect_chains"
+   ],
+   "data": {
+    "api": "on_page",
+    "function": "redirect_chains",
+    "limit": 100
+   },
+   "result": [
+    {
+     "crawl_progress": "finished",
+     "crawl_status": {
+      "max_crawl_pages": 5,
+      "pages_in_queue": 0,
+      "pages_crawled": 5
+     },
+     "total_items_count": 0,
+     "items_count": 0,
+     "items": null
+    }
+   ]
+  }
+ ]
+}

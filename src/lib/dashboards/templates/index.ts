@@ -9,6 +9,7 @@ import { gbpTemplate } from "./gbp";
 import { instagramTemplate } from "./instagram";
 import { rankingsTemplate } from "./rankings";
 import { seoTemplate } from "./seo";
+import { siteAuditTemplate } from "./site-audit";
 
 export interface DashboardTemplateDef {
   key: string;
@@ -28,4 +29,5 @@ export const DASHBOARD_TEMPLATES: DashboardTemplateDef[] = [
   instagramTemplate,
   rankingsTemplate,
   seoTemplate,
+  siteAuditTemplate,
 ];

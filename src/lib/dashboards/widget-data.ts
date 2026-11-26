@@ -19,6 +19,18 @@ export interface KeywordRankRow {
   device?: string | null;
 }
 
+/** One issue in the site audit widgets. */
+export interface AuditIssueLite {
+  key: string;
+  label: string;
+  severity: "error" | "warning" | "notice";
+  category: string;
+  fix: string;
+  count: number;
+  previous: number | null;
+  change: "new" | "fixed" | "worse" | "better" | "same";
+}
+
 /** One call in a call log widget (CallRail). */
 export interface CallLogRow {
   id: string;
@@ -56,6 +68,10 @@ export type WidgetData =
   | { kind: "series"; metrics: MetricInfo[]; dates: string[]; current: Record<string, (number | null)[]>; previous: Record<string, (number | null)[]> | null; previousDates: string[] | null }
   | { kind: "breakdown"; metrics: MetricInfo[]; dimensionLabel: string; rows: { label: string; values: Record<string, number | null> }[] }
   | { kind: "rankings"; rows: KeywordRankRow[]; hasComparison: boolean }
+  | { kind: "audit_score"; score: number | null; previous: number | null; comparedAt: string | null; pages: number | null; errorPages: number | null; crawledAt: string; trend: { dates: string[]; scores: (number | null)[] } }
+  | { kind: "audit_issues"; rows: AuditIssueLite[]; total: number; crawledAt: string; hasPrevious: boolean }
+  | { kind: "audit_fixed"; rows: AuditIssueLite[]; since: string | null; crawledAt: string }
+  | { kind: "audit_summary"; overview: string; fixes: { title: string; why: string }[]; regressions: string[]; crawledAt: string }
   | { kind: "calllog"; rows: CallLogRow[]; total: number; timeZone: string | null }
   | { kind: "formlog"; rows: FormLogRow[]; total: number; timeZone: string | null }
   | { kind: "text" }

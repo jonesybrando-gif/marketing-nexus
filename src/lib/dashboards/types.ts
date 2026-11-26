@@ -13,7 +13,11 @@ export type WidgetKind =
   | "formlog"    // recent form submissions (CallRail form tracking)
   | "text"       // free text / heading / note
   | "pacing"     // existing budget pacing block (ads)
-  | "campaigns"; // existing campaign table (ads)
+  | "campaigns"  // existing campaign table (ads)
+  | "audit_score"   // site health score, change and trend (Site Auditor)
+  | "audit_issues"  // top site issues with how to fix them
+  | "audit_fixed"   // issues fixed since the previous crawl / start of the period
+  | "audit_summary"; // the latest crawl's AI summary
 
 export interface DashboardWidget {
   id: string;

@@ -149,3 +149,65 @@ export async function getSerpLocations(secret: string, countryIso: string, fetch
   if (!t || t.status_code !== 20000) throw new DataForSeoError(`DataForSEO error ${t?.status_code ?? r.status_code}: ${t?.status_message ?? r.status_message}`, t?.status_code);
   return (t.result ?? []).filter((l): l is DfsLocation => !!l && typeof l.location_code === "number" && typeof l.location_name === "string");
 }
+
+// --- On-Page API (Site Auditor) ----------------------------------------------
+
+export interface OnPageTaskInput {
+  target: string;
+  max_crawl_pages: number;
+  load_resources: boolean;
+  enable_javascript: boolean;
+  calculate_keyword_density: false;
+  /** Our SiteAudit id, echoed back in task data. */
+  tag: string;
+  /** Start from this URL (keeps the crawl on the chosen protocol and host). */
+  start_url?: string;
+}
+
+/** POST /v3/on_page/task_post: starts a crawl. Returns the task (status 20100 = created) with its cost. */
+export async function postOnPageTask(secret: string, task: OnPageTaskInput, fetchImpl?: FetchLike): Promise<DfsTask> {
+  const r = await call(secret, "/on_page/task_post", { method: "POST", body: [task] }, fetchImpl);
+  const t = r.tasks?.[0];
+  if (!t) throw new DataForSeoError("DataForSEO returned no task for the crawl.");
+  return t;
+}
+
+export interface OnPageSummary {
+  crawl_progress?: string;
+  crawl_status?: { max_crawl_pages?: number; pages_in_queue?: number; pages_crawled?: number } | null;
+  crawl_stop_reason?: string | null;
+  domain_info?: { checks?: Record<string, boolean | null> | null; total_pages?: number | null } | null;
+  page_metrics?: { onpage_score?: number | null } | null;
+}
+
+/** On-Page task result (summary, pages, …). Throws on task-level errors except "not ready", which returns null. */
+async function onPageResult<R>(secret: string, path: string, body: unknown, fetchImpl?: FetchLike): Promise<{ result: R | null; cost: number }> {
+  const r = await call<R>(secret, path, body === undefined ? { method: "GET" } : { method: "POST", body: [body] }, fetchImpl);
+  const t = r.tasks?.[0];
+  if (!t) throw new DataForSeoError(`DataForSEO returned no task for ${path}.`);
+  if (isNotReadyCode(t.status_code)) return { result: null, cost: t.cost ?? 0 };
+  if (t.status_code !== 20000) throw new DataForSeoError(`DataForSEO error ${t.status_code}: ${t.status_message}`, t.status_code);
+  return { result: t.result?.[0] ?? null, cost: t.cost ?? 0 };
+}
+
+/** GET /v3/on_page/summary/{id}: progress ("in_progress" | "finished") and domain-level totals. */
+export function getOnPageSummary(secret: string, id: string, fetchImpl?: FetchLike) {
+  return onPageResult<OnPageSummary>(secret, `/on_page/summary/${encodeURIComponent(id)}`, undefined, fetchImpl);
+}
+
+export interface OnPageList<I> { crawl_progress?: string; total_items_count?: number; items_count?: number; items?: I[] | null }
+
+/** POST /v3/on_page/{endpoint} with { id, limit, offset, filters? }. */
+export function getOnPageList<I>(secret: string, endpoint: "pages" | "non_indexable" | "links" | "redirect_chains", id: string, opts: { limit: number; offset?: number; filters?: unknown[] }, fetchImpl?: FetchLike) {
+  return onPageResult<OnPageList<I>>(secret, `/on_page/${endpoint}`, { id, limit: opts.limit, offset: opts.offset ?? 0, ...(opts.filters ? { filters: opts.filters } : {}) }, fetchImpl);
+}
+
+export interface LighthouseResult {
+  categories?: { performance?: { score?: number | null } | null } | null;
+  audits?: Record<string, { numericValue?: number | null } | undefined> | null;
+}
+
+/** POST /v3/on_page/lighthouse/live/json (mobile, performance only). */
+export function getLighthouse(secret: string, url: string, fetchImpl?: FetchLike) {
+  return onPageResult<LighthouseResult>(secret, "/on_page/lighthouse/live/json", { url, for_mobile: true, categories: ["performance"] }, fetchImpl);
+}

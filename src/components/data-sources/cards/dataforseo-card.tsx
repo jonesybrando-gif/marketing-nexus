@@ -6,7 +6,8 @@ import { rankCostEstimate } from "@/lib/rankings";
 import { relativeTime } from "@/lib/time";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { DataForSeoConnectForm, DataForSeoDisconnectButton } from "../dataforseo-forms";
+import { DataForSeoConnectForm, DataForSeoDisconnectButton, SiteAuditCapForm } from "../dataforseo-forms";
+import { monthSpend } from "@/server/site-audit/jobs";
 
 const STATUS: Record<string, { label: string; variant: "good" | "critical" | "warning" | "neutral" }> = {
   ACTIVE: { label: "Connected", variant: "good" },
@@ -27,6 +28,11 @@ export async function DataForSeoCard() {
     conn ? prisma.dataAsset.aggregate({ where: { connectionId: conn.id }, _max: { lastSuccessfulSyncAt: true } }) : null,
     dataForSeoBalance(conn),
   ]);
+  const [agency, auditSpend, auditClients] = await Promise.all([
+    prisma.agency.findUniqueOrThrow({ where: { id: user.agencyId }, select: { siteAuditMonthlyCapUsd: true } }),
+    monthSpend(user.agencyId),
+    prisma.siteAuditConfig.count({ where: { client: { agencyId: user.agencyId, archivedAt: null } } }),
+  ]);
   const badge = conn ? STATUS[conn.status] ?? STATUS.PENDING_APPROVAL : null;
   const price = serpCheckPriceUsd();
   const monthly = rankCostEstimate(keywords, price).perMonth;
@@ -34,12 +40,13 @@ export async function DataForSeoCard() {
     <Card>
       <CardHeader>
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <CardTitle>Keyword rank tracking (DataForSEO)</CardTitle>
+          <CardTitle>Rank tracking &amp; site audits (DataForSEO)</CardTitle>
           {badge ? <Badge variant={badge.variant}>{badge.label}</Badge> : <Badge variant="neutral">Not connected</Badge>}
         </div>
         <CardDescription>
           Exact daily Google positions for each client&apos;s keywords, checked once a day through the official DataForSEO SERP API (Standard queue,
           about {formatUsd(price, 4)} per check, billed by DataForSEO). Each keyword is tracked per location and device. Set up keywords per client under Setup → Keyword rankings.
+          The same login runs Site Auditor crawls (On-Page API) from each client&apos;s Site Audit tab.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-3 text-sm">
@@ -59,6 +66,10 @@ export async function DataForSeoCard() {
             {error && <p className="mt-1 text-xs text-warning-ink">Couldn&apos;t read the balance: {error}</p>}
             {conn.lastError && conn.status !== "ACTIVE" && <p className="mt-1 text-xs text-critical-ink">{conn.lastError}</p>}
             {failing?.lastError && <p className="mt-1 text-xs text-critical-ink">Latest error: {failing.lastError}</p>}
+            <p className="mt-1 text-xs text-text-2">
+              Site audits: {auditClients} client{auditClients === 1 ? "" : "s"} · {formatUsd(auditSpend)} of the {formatUsd(agency.siteAuditMonthlyCapUsd)} monthly cap used this month
+            </p>
+            {admin && <div className="mt-2"><SiteAuditCapForm cap={agency.siteAuditMonthlyCapUsd} /></div>}
             {admin && <div className="mt-2 flex flex-wrap gap-2"><DataForSeoDisconnectButton /></div>}
           </div>
         )}
