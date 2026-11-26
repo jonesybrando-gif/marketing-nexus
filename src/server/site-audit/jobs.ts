@@ -12,7 +12,8 @@ import { checkCostCap, estimateAuditCost, lighthouseUrlCount } from "@/lib/site-
 import { healthScore } from "@/lib/site-audit/score";
 import { nextAuditRun } from "@/lib/site-audit/schedule";
 import { zonedTime } from "@/lib/report-schedule";
-import { AuditError, classifyError, collectCrawl, crawlProgress, hostOfTarget, NO_AUTO_RETRY, runLighthouse, startCrawl, type AuditErrorCode } from "./engine";
+import { AuditError, classifyError, collectCrawl, crawlProgress, hostOfTarget, NO_AUTO_RETRY, runLighthouse, startCrawl, stopCrawl, type AuditErrorCode, type LighthouseRow } from "./engine";
+import { ISSUE_BY_KEY, type CrawlFindings } from "@/lib/site-audit/issues";
 import { auditSummaryData } from "./summary-data";
 
 // Site Auditor jobs, run by the existing hourly scheduler (src/server/scheduler.ts,
@@ -26,7 +27,7 @@ export const CRAWL_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 export const KEEP_DETAIL = 6;
 const ACTIVE = ["queued", "crawling", "processing"];
 
-export interface JobDeps { fetch?: FetchLike; now?: Date }
+export interface JobDeps { fetch?: FetchLike; now?: Date; /** Lighthouse retry wait (tests use 0). */ retryDelayMs?: number }
 
 async function agencySecret(agencyId: string): Promise<{ secret: string; connectionId: string }> {
   const c = await agencyDataForSeoConnection(agencyId);
@@ -204,38 +205,131 @@ export function crawlCharge(upfront: number, maxPages: number, pagesCrawled: num
   return Math.round((upfront / maxPages) * Math.min(Math.max(pagesCrawled, 0), maxPages) * 1e6) / 1e6;
 }
 
-/** Collects a finished crawl: issues, pages, score, Lighthouse, costs. Leaves the audit completed (or failed). */
-async function finishAudit(audit: SiteAudit, secret: string, crawl: { domainChecks: Record<string, boolean | null> | null; onpageScore: number | null; pagesCrawled: number }, deps: JobDeps) {
-  const now = deps.now ?? new Date();
-  const client = await prisma.client.findUniqueOrThrow({ where: { id: audit.clientId }, select: { timezone: true } });
-  const { findings, cost } = await collectCrawl(secret, audit.providerTaskId!, { targetUrl: audit.targetUrl, maxPages: audit.maxPages, domainChecks: crawl.domainChecks }, deps.fetch);
-  const lh = await runLighthouse(secret, await lighthouseUrls(audit.clientId, audit.targetUrl, audit.lighthouseMode, client.timezone, now), deps.fetch);
-  const score = healthScore({ pages: findings.pages, errorPages: findings.errorPages, warningPages: findings.warningPages, noticePages: findings.noticePages });
+/** Version of the analysis rules (exclusions, severities, score). Older audits can be re-analysed for free. */
+export const ANALYSIS_VERSION = 2;
+
+const ignorePatternsFor = async (clientId: string) => (await prisma.siteAuditConfig.findUnique({ where: { clientId }, select: { ignorePatterns: true } }))?.ignorePatterns ?? [];
+
+/** Replaces an audit's issues and pages with `findings` and updates the audit row in one transaction. */
+async function storeFindings(auditId: string, findings: CrawlFindings, data: Prisma.SiteAuditUpdateInput, ignorePatterns: string[]) {
   await prisma.$transaction([
-    prisma.siteAuditIssue.deleteMany({ where: { auditId: audit.id } }),
-    prisma.siteAuditPage.deleteMany({ where: { auditId: audit.id } }),
-    prisma.siteAuditIssue.createMany({ data: findings.issues.map((i) => ({ auditId: audit.id, issueKey: i.key, severity: i.severity, category: i.category, count: i.count, sampleUrls: i.sampleUrls })) }),
-    prisma.siteAuditPage.createMany({ data: findings.pageRows.slice(0, 5000).map((p) => ({ auditId: audit.id, ...p })) }),
+    prisma.siteAuditIssue.deleteMany({ where: { auditId } }),
+    prisma.siteAuditPage.deleteMany({ where: { auditId } }),
+    prisma.siteAuditIssue.createMany({ data: findings.issues.map((i) => ({ auditId, issueKey: i.key, severity: i.severity, category: i.category, count: i.count, sampleUrls: i.sampleUrls })) }),
+    prisma.siteAuditPage.createMany({ data: findings.pageRows.slice(0, 5000).map((p) => ({ auditId, ...p })) }),
     prisma.siteAudit.update({
-      where: { id: audit.id },
+      where: { id: auditId },
       data: {
-        status: "completed",
-        finishedAt: now,
+        ...data,
         pagesCrawled: findings.pages,
-        healthScore: score,
-        onpageScore: crawl.onpageScore,
+        healthScore: healthScore({ pages: findings.pages, issues: findings.issues }),
         errorPages: findings.errorPages,
         warningPages: findings.warningPages,
         noticePages: findings.noticePages,
-        lighthouse: lh.rows.length ? (lh.rows as unknown as Prisma.InputJsonValue) : undefined,
-        actualCost: crawlCharge(audit.actualCost ?? 0, audit.maxPages, crawl.pagesCrawled) + cost + lh.cost,
-        errorCode: null,
-        errorMessage: null,
+        analysisVersion: ANALYSIS_VERSION,
+        ignorePatterns,
       },
     }),
   ]);
+}
+
+/** Collects a finished crawl: issues, pages, score, Lighthouse, costs. Leaves the audit completed (or failed). */
+async function finishAudit(audit: SiteAudit, secret: string, crawl: { domainChecks: Record<string, boolean | null> | null; onpageScore: number | null; pagesCrawled: number; server: string | null }, deps: JobDeps) {
+  const now = deps.now ?? new Date();
+  const client = await prisma.client.findUniqueOrThrow({ where: { id: audit.clientId }, select: { timezone: true } });
+  const ignore = await ignorePatternsFor(audit.clientId);
+  const { findings, cost } = await collectCrawl(secret, audit.providerTaskId!, { targetUrl: audit.targetUrl, maxPages: audit.maxPages, domainChecks: crawl.domainChecks, ignore }, deps.fetch);
+  const lh = await runLighthouse(secret, await lighthouseUrls(audit.clientId, audit.targetUrl, audit.lighthouseMode, client.timezone, now), deps.fetch, { server: crawl.server, retryDelayMs: deps.retryDelayMs });
+  await storeFindings(audit.id, findings, {
+    status: "completed",
+    finishedAt: now,
+    onpageScore: crawl.onpageScore,
+    serverSoftware: crawl.server,
+    lighthouse: lh.rows.length ? (lh.rows as unknown as Prisma.InputJsonValue) : undefined,
+    actualCost: crawlCharge(audit.actualCost ?? 0, audit.maxPages, crawl.pagesCrawled) + cost + lh.cost,
+    errorCode: null,
+    errorMessage: audit.stopRequestedAt ? `Stopped early by an administrator after ${crawl.pagesCrawled} pages; results cover those pages.` : null,
+  }, ignore);
   await pruneAuditDetail(audit.clientId);
   await summarizeAudit(audit.id);
+}
+
+/**
+ * Re-checks a finished crawl with the current rules and the client's ignore
+ * patterns, without crawling again: the crawl's results are read back from
+ * DataForSEO (free while DataForSEO still holds them). If it no longer does,
+ * the stored issue counts are re-scored with the current formula and
+ * severities; CDN-path and ignore-pattern exclusions then can't be applied.
+ * Lighthouse results and costs are kept. The AI summary is rewritten.
+ */
+export async function reanalyzeAudit(auditId: string, deps: JobDeps = {}): Promise<{ mode: "refetched" | "stored"; before: number | null; after: number | null; speedRetried: number }> {
+  const audit = await prisma.siteAudit.findUniqueOrThrow({ where: { id: auditId }, include: { client: { select: { agencyId: true } }, issues: true } });
+  if (audit.status !== "completed") throw new AuditError("provider_error", "Only a finished audit can be re-checked.");
+  const before = audit.healthScore;
+  const speedRetried = await retryFailedSpeedTests(audit, deps).catch(() => 0);
+  if (audit.providerTaskId) {
+    try {
+      const { secret } = await agencySecret(audit.client.agencyId);
+      const p = await crawlProgress(secret, audit.providerTaskId, deps.fetch);
+      if (p.finished && p.pagesCrawled > 0) {
+        const ignore = await ignorePatternsFor(audit.clientId);
+        const { findings } = await collectCrawl(secret, audit.providerTaskId, { targetUrl: audit.targetUrl, maxPages: audit.maxPages, domainChecks: p.domainChecks, ignore }, deps.fetch);
+        if (findings.pages > 0) {
+          await storeFindings(audit.id, findings, { serverSoftware: p.server ?? audit.serverSoftware, onpageScore: p.onpageScore ?? audit.onpageScore }, ignore);
+          await summarizeAudit(audit.id);
+          const after = (await prisma.siteAudit.findUniqueOrThrow({ where: { id: audit.id }, select: { healthScore: true } })).healthScore;
+          return { mode: "refetched", before, after, speedRetried };
+        }
+      }
+    } catch (e) {
+      const k = classifyError(e).code;
+      if (k === "bad_credentials" || k === "insufficient_balance") throw e;
+      // DataForSEO no longer has the crawl (or a transient error): fall back to the stored counts.
+    }
+  }
+  // Stored counts, current severities and formula.
+  const issues = audit.issues.filter((i) => ISSUE_BY_KEY[i.issueKey]).map((i) => ({ ...i, severity: ISSUE_BY_KEY[i.issueKey].severity }));
+  const after = healthScore({ pages: audit.pagesCrawled ?? 0, issues: issues.map((i) => ({ key: i.issueKey, severity: i.severity, count: i.count })) });
+  await prisma.$transaction([
+    ...issues.map((i) => prisma.siteAuditIssue.update({ where: { id: i.id }, data: { severity: i.severity } })),
+    prisma.siteAudit.update({ where: { id: audit.id }, data: { healthScore: after } }),
+  ]);
+  await summarizeAudit(audit.id);
+  return { mode: "stored", before, after, speedRetried };
+}
+
+/**
+ * Re-runs only the Lighthouse tests of an audit that failed, keeping the ones
+ * that worked. DataForSEO doesn't charge for failed tests, so this costs $0
+ * if the site still blocks the tester (and stores the real reason), $0.005 per
+ * page if it now works. Returns how many were re-run.
+ */
+async function retryFailedSpeedTests(audit: SiteAudit & { client: { agencyId: string } }, deps: JobDeps): Promise<number> {
+  const rows = Array.isArray(audit.lighthouse) ? (audit.lighthouse as unknown as LighthouseRow[]) : [];
+  const failed = rows.filter((r) => r.error);
+  if (!failed.length) return 0;
+  const { secret } = await agencySecret(audit.client.agencyId);
+  const lh = await runLighthouse(secret, failed.map((r) => r.url), deps.fetch, { server: audit.serverSoftware, retryDelayMs: deps.retryDelayMs });
+  const fresh = new Map(lh.rows.map((r) => [r.url, r]));
+  await prisma.siteAudit.update({
+    where: { id: audit.id },
+    data: { lighthouse: rows.map((r) => fresh.get(r.url) ?? r) as unknown as Prisma.InputJsonValue, actualCost: (audit.actualCost ?? 0) + lh.cost },
+  });
+  return failed.length;
+}
+
+/**
+ * Admin: stops the client's running crawl. DataForSEO keeps what it crawled;
+ * the poller then collects those pages as a normal (partial) audit. A crawl
+ * that hasn't started at DataForSEO yet is simply cancelled.
+ */
+export async function stopAudit(clientId: string, deps: JobDeps = {}): Promise<SiteAudit> {
+  const a = await prisma.siteAudit.findFirst({ where: { clientId, status: { in: ["queued", "crawling"] } }, include: { client: { select: { agencyId: true } } }, orderBy: { createdAt: "desc" } });
+  if (!a) throw new AuditError("provider_error", "No crawl is running.");
+  if (!a.providerTaskId || a.status === "queued") return fail(a, "provider_error", "Stopped by an administrator before the crawl started.");
+  const { secret } = await agencySecret(a.client.agencyId);
+  await stopCrawl(secret, a.providerTaskId, deps.fetch);
+  return prisma.siteAudit.update({ where: { id: a.id }, data: { stopRequestedAt: deps.now ?? new Date() } });
 }
 
 /** Advances running crawls: progress, then results when finished; fails crawls older than 24 h. */
@@ -267,7 +361,7 @@ export async function pollActiveAudits(deps: JobDeps = {}): Promise<{ checked: n
       // Claim it, so a second runner doesn't process the same crawl.
       const claimed = await prisma.siteAudit.updateMany({ where: { id: a.id, status: "crawling" }, data: { status: "processing", pagesCrawled: p.pagesCrawled } });
       if (!claimed.count) continue;
-      await finishAudit({ ...a, status: "processing" }, conn.secret, { domainChecks: p.domainChecks, onpageScore: p.onpageScore, pagesCrawled: p.pagesCrawled }, deps);
+      await finishAudit({ ...a, status: "processing" }, conn.secret, { domainChecks: p.domainChecks, onpageScore: p.onpageScore, pagesCrawled: p.pagesCrawled, server: p.server }, deps);
       completed++;
     } catch (e) {
       const k = classifyError(e);

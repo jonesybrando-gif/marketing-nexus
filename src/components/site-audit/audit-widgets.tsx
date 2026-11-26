@@ -2,7 +2,7 @@ import { CheckCircle2 } from "lucide-react";
 import type { MetricInfo } from "@/lib/dashboards/metrics";
 import type { AuditIssueLite } from "@/lib/dashboards/widget-data";
 import { CATEGORY_LABEL, type Category } from "@/lib/site-audit/issues";
-import { scoreBand } from "@/lib/site-audit/score";
+import { SCORE_EXPLANATION, scoreBand } from "@/lib/site-audit/score";
 import { formatDate } from "@/lib/time";
 import { SeriesChart } from "@/components/charts/series-chart";
 import { Badge } from "@/components/ui/badge";
@@ -19,7 +19,7 @@ export const SCORE_METRIC: MetricInfo = {
   short: "Health score",
   format: "count",
   better: "up",
-  description: "Our 0–100 score: 100 minus the share of pages with errors (full weight), warnings (40%) and notices (10%).",
+  description: `Our 0–100 score. ${SCORE_EXPLANATION}`,
   plain: "Higher is better: fewer pages with technical SEO problems.",
 };
 

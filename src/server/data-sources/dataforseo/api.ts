@@ -198,16 +198,33 @@ export function getOnPageSummary(secret: string, id: string, fetchImpl?: FetchLi
 export interface OnPageList<I> { crawl_progress?: string; total_items_count?: number; items_count?: number; items?: I[] | null }
 
 /** POST /v3/on_page/{endpoint} with { id, limit, offset, filters? }. */
-export function getOnPageList<I>(secret: string, endpoint: "pages" | "non_indexable" | "links" | "redirect_chains", id: string, opts: { limit: number; offset?: number; filters?: unknown[] }, fetchImpl?: FetchLike) {
-  return onPageResult<OnPageList<I>>(secret, `/on_page/${endpoint}`, { id, limit: opts.limit, offset: opts.offset ?? 0, ...(opts.filters ? { filters: opts.filters } : {}) }, fetchImpl);
+export function getOnPageList<I>(secret: string, endpoint: "pages" | "non_indexable" | "links" | "redirect_chains" | "resources" | "pages_by_resource", id: string, opts: { limit: number; offset?: number; filters?: unknown[]; url?: string }, fetchImpl?: FetchLike) {
+  return onPageResult<OnPageList<I>>(secret, `/on_page/${endpoint}`, { id, limit: opts.limit, offset: opts.offset ?? 0, ...(opts.url ? { url: opts.url } : {}), ...(opts.filters ? { filters: opts.filters } : {}) }, fetchImpl);
+}
+
+/** POST /v3/on_page/force_stop: stops a running crawl; pages crawled so far stay available. Free. */
+export async function forceStopOnPage(secret: string, id: string, fetchImpl?: FetchLike): Promise<void> {
+  const r = await call(secret, "/on_page/force_stop", { method: "POST", body: [{ id }] }, fetchImpl);
+  const t = r.tasks?.[0];
+  if (!t || (t.status_code !== 20000 && t.status_code !== 20100)) throw new DataForSeoError(`DataForSEO error ${t?.status_code ?? r.status_code}: ${t?.status_message ?? r.status_message}`, t?.status_code);
 }
 
 export interface LighthouseResult {
   categories?: { performance?: { score?: number | null } | null } | null;
   audits?: Record<string, { numericValue?: number | null } | undefined> | null;
+  /** Set when Lighthouse couldn't test the page, e.g. { code: "ERRORED_DOCUMENT_REQUEST", message: "… (Status code: 403)" }. */
+  runtimeError?: { code?: string; message?: string } | null;
 }
 
-/** POST /v3/on_page/lighthouse/live/json (mobile, performance only). */
-export function getLighthouse(secret: string, url: string, fetchImpl?: FetchLike) {
-  return onPageResult<LighthouseResult>(secret, "/on_page/lighthouse/live/json", { url, for_mobile: true, categories: ["performance"] }, fetchImpl);
+/**
+ * POST /v3/on_page/lighthouse/live/json (mobile, performance only). Returns
+ * the task status as well: when Lighthouse fails (task 50301) the result still
+ * carries its runtimeError, which says why (and failed tests aren't charged).
+ */
+export async function getLighthouse(secret: string, url: string, fetchImpl?: FetchLike): Promise<{ status: number; message: string; result: LighthouseResult | null; cost: number }> {
+  const r = await call<LighthouseResult>(secret, "/on_page/lighthouse/live/json", { method: "POST", body: [{ url, for_mobile: true, categories: ["performance"] }] }, fetchImpl);
+  const t = r.tasks?.[0];
+  if (!t) throw new DataForSeoError("DataForSEO returned no Lighthouse task.");
+  if (t.status_code === 401 || isBalanceCode(t.status_code)) throw new DataForSeoError(t.status_message, t.status_code);
+  return { status: t.status_code, message: t.status_message, result: t.result?.[0] ?? null, cost: t.cost ?? 0 };
 }

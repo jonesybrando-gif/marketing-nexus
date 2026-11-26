@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Gauge } from "lucide-react";
 import { prisma } from "@/server/db";
 import { siteAuditView } from "@/server/site-audit/queries";
-import { auditEstimate, monthSpend } from "@/server/site-audit/jobs";
+import { ANALYSIS_VERSION, auditEstimate, monthSpend } from "@/server/site-audit/jobs";
 import { ERROR_HELP, type AuditErrorCode } from "@/server/site-audit/engine";
 import { agencyDataForSeoConnection } from "@/server/data-sources/dataforseo/account";
 import { onPageRates } from "@/server/data-sources/dataforseo/pricing";
@@ -11,7 +11,8 @@ import { formatDate, relativeTime } from "@/lib/time";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { buttonVariants } from "@/components/ui/button";
 import { AuditScoreBody, AuditSummaryBody } from "./audit-widgets";
-import { AuditAutoRefresh, AuditIssueTable, AuditSettingsDrawer, AuditSettingsForm, RunAuditButton } from "./site-audit-controls";
+import { AuditAutoRefresh, AuditIssueTable, AuditSettingsDrawer, AuditSettingsForm, ReanalyzeButton, RunAuditButton, StopCrawlButton } from "./site-audit-controls";
+import { SCORE_EXPLANATION } from "@/lib/site-audit/score";
 
 const when = (d: Date | null | undefined) => (d ? formatDate(d.toISOString().slice(0, 10), { month: "short", day: "numeric", year: "numeric" }) : "—");
 const fmtMs = (ms: number | null) => (ms === null ? "—" : ms >= 1000 ? `${(ms / 1000).toFixed(1)} s` : `${Math.round(ms)} ms`);
@@ -42,7 +43,7 @@ export async function SiteAuditTab({ clientId, agencyId, canEdit, isAdmin, staff
         </CardHeader>
         {canEdit && (
           <CardContent className="max-w-xl">
-            <AuditSettingsForm clientId={clientId} rates={rates} value={{ targetUrl: "", schedule: "weekly", dayOfWeek: 1, dayOfMonth: 1, maxPages: 500, enableJs: false, lighthouse: "homepage", active: true }} />
+            <AuditSettingsForm clientId={clientId} rates={rates} value={{ targetUrl: "", schedule: "weekly", dayOfWeek: 1, dayOfMonth: 1, maxPages: 500, enableJs: false, lighthouse: "homepage", active: true, ignorePatterns: [] }} />
           </CardContent>
         )}
       </Card>
@@ -55,7 +56,10 @@ export async function SiteAuditTab({ clientId, agencyId, canEdit, isAdmin, staff
   const capLeft = (agency?.siteAuditMonthlyCapUsd ?? 0) - spent;
   const failedSince = lastAttempt && (lastAttempt.status === "failed" || lastAttempt.status === "skipped") && (!latest || lastAttempt.createdAt > latest.createdAt) ? lastAttempt : null;
   const samples = Object.fromEntries((latest ? await prisma.siteAuditIssue.findMany({ where: { auditId: latest.id }, select: { issueKey: true, sampleUrls: true } }) : []).map((i) => [i.issueKey, Array.isArray(i.sampleUrls) ? (i.sampleUrls as string[]).filter(Boolean) : []]));
-  const settingsValue = { targetUrl: config.targetUrl, schedule: config.schedule, dayOfWeek: config.dayOfWeek ?? 1, dayOfMonth: config.dayOfMonth ?? 1, maxPages: config.maxPages, enableJs: config.enableJs, lighthouse: config.lighthouse, active: config.active };
+  const settingsValue = { targetUrl: config.targetUrl, schedule: config.schedule, dayOfWeek: config.dayOfWeek ?? 1, dayOfMonth: config.dayOfMonth ?? 1, maxPages: config.maxPages, enableJs: config.enableJs, lighthouse: config.lighthouse, active: config.active, ignorePatterns: config.ignorePatterns };
+  // The latest results predate the current rules, or the ignore patterns changed since: offer a free re-check.
+  const samePatterns = (a: string[], b: string[]) => a.length === b.length && a.every((x) => b.includes(x));
+  const outdated = !!latest && (latest.analysisVersion < ANALYSIS_VERSION || !samePatterns(latest.ignorePatterns, config.ignorePatterns));
 
   return (
     <div className="flex flex-col gap-4">
@@ -82,10 +86,14 @@ export async function SiteAuditTab({ clientId, agencyId, canEdit, isAdmin, staff
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
           {running && (
-            <p className="rounded-md bg-info-bg px-3 py-2 text-sm text-info-ink" role="status">
-              {running.status === "processing" ? "Crawl finished; analysing the results…" : `Crawling… ${running.pagesCrawled ?? 0} of up to ${running.maxPages} pages so far`} (started {relativeTime(running.startedAt?.toISOString() ?? running.createdAt.toISOString())}). This page updates on its own.
-            </p>
+            <div className="flex flex-wrap items-start justify-between gap-2 rounded-md bg-info-bg px-3 py-2 text-sm text-info-ink" role="status">
+              <p>
+                {running.status === "processing" ? "Crawl finished; analysing the results…" : running.stopRequestedAt ? `Stopping after ${running.pagesCrawled ?? 0} pages; analysing what was crawled…` : `Crawling… ${running.pagesCrawled ?? 0} of up to ${running.maxPages} pages so far`} (started {relativeTime(running.startedAt?.toISOString() ?? running.createdAt.toISOString())}). This page updates on its own.
+              </p>
+              {isAdmin && running.status === "crawling" && <StopCrawlButton clientId={clientId} stopping={!!running.stopRequestedAt} />}
+            </div>
           )}
+          {latest?.stopRequestedAt && latest.errorMessage && staff && <p className="text-xs text-text-2">{latest.errorMessage}</p>}
           {failedSince && staff && (
             <p className="rounded-md bg-warning-bg px-3 py-2 text-sm text-warning-ink" role="alert">
               {failedSince.status === "skipped" ? "Last crawl skipped" : "Last crawl failed"} on {when(failedSince.createdAt)}: {failedSince.errorMessage ?? ERROR_HELP[failedSince.errorCode as AuditErrorCode] ?? "unknown error"}
@@ -105,6 +113,12 @@ export async function SiteAuditTab({ clientId, agencyId, canEdit, isAdmin, staff
           ) : (
             !running && <p className="text-sm text-text-2">No crawl has finished yet. {isAdmin ? "Run one now, or wait for the schedule." : "The first one runs on the schedule above."}</p>
           )}
+          {latest && isAdmin && !running && (
+            <div className="flex flex-col gap-1">
+              {outdated && <p className="text-xs text-warning-ink">These results were analysed with older rules or before the current ignore patterns. Re-check them for free (no new crawl).</p>}
+              <ReanalyzeButton clientId={clientId} outdated={outdated} />
+            </div>
+          )}
           {latest && view.previous && (
             <p className="text-sm text-text-2">
               Since {when(view.previous.finishedAt ?? view.previous.createdAt)}: <span className="font-medium text-critical-ink">{view.changes.new} new</span>, <span className="font-medium text-warning-ink">{view.changes.worse} worse</span>, <span className="font-medium text-good-ink">{view.changes.fixed} fixed</span>, {view.changes.better} better.
@@ -114,7 +128,7 @@ export async function SiteAuditTab({ clientId, agencyId, canEdit, isAdmin, staff
             <p className="text-xs text-text-3">
               Each crawl costs up to about ${estimate.toFixed(2)} (DataForSEO){latest?.actualCost != null && <>; the last one cost ${latest.actualCost.toFixed(3)}</>}. This month: ${spent.toFixed(2)} of the ${(agency?.siteAuditMonthlyCapUsd ?? 0).toFixed(2)} agency cap
               {isAdmin && <> (<Link href="/integrations" className="underline hover:text-text">change</Link>)</>}.
-              {" "}Score: 100 minus the share of pages with errors (full weight), warnings (40%) and notices (10%).
+              {" "}Score: {SCORE_EXPLANATION}
             </p>
           )}
         </CardContent>
@@ -154,7 +168,7 @@ export async function SiteAuditTab({ clientId, agencyId, canEdit, isAdmin, staff
                 {view.lighthouse.map((r) => (
                   <tr key={r.url}>
                     <td className="max-w-[320px] truncate py-1.5 pr-3"><a href={r.url} target="_blank" rel="noreferrer noopener" className="text-brand-text hover:underline">{r.url.replace(/^https?:\/\/[^/]+/, "") || "/"}</a></td>
-                    {r.error ? <td colSpan={4} className="py-1.5 text-right text-xs text-text-3">not measured</td> : (
+                    {r.error ? <td colSpan={4} className="max-w-[520px] py-1.5 text-right text-xs text-warning-ink">Not measured: {r.error}</td> : (
                       <>
                         <td className={`py-1.5 pr-3 text-right font-semibold tabular ${r.performance === null ? "" : r.performance >= 90 ? "text-good-ink" : r.performance >= 50 ? "text-warning-ink" : "text-critical-ink"}`}>{r.performance ?? "—"}</td>
                         <td className="py-1.5 pr-3 text-right tabular">{fmtMs(r.lcpMs)}</td>

@@ -972,6 +972,8 @@ model SiteAuditConfig {
   enableJs   Boolean  @default(false)
   /// "off" | "homepage" | "top_pages" (homepage + up to 5 top landing pages)
   lighthouse String   @default("homepage")
+  /// URL patterns left out of the issue list and score, e.g. "/book?*" (src/lib/site-audit/urls.ts).
+  ignorePatterns String[] @default([])
   active     Boolean  @default(true)
   /// Next scheduled crawl (null for manual).
   nextRunAt  DateTime?
@@ -994,6 +996,14 @@ model SiteAudit {
   enableJs       Boolean  @default(false)
   lighthouseMode String   @default("off")
   providerTaskId String?
+  /// The site's web server as DataForSEO saw it (e.g. "cloudflare"), for explaining blocked tests.
+  serverSoftware String?
+  /// Version of the analysis rules the stored issues and score come from (ANALYSIS_VERSION in jobs.ts).
+  analysisVersion Int     @default(1)
+  /// An admin asked to stop the crawl; results so far are still collected.
+  stopRequestedAt DateTime?
+  /// The client's ignore patterns the stored issues were analysed with.
+  ignorePatterns String[] @default([])
   createdAt      DateTime @default(now())
   startedAt      DateTime?
   finishedAt     DateTime?

@@ -1,28 +1,53 @@
 // The Site Auditor health score: our own, so it is stable and explainable
 // (DataForSEO's onpage_score is stored alongside for reference).
 //
-//   score = 100 − 100 × (1.0 × share of pages with an error
-//                        + 0.4 × share of pages with a warning
-//                        + 0.1 × share of pages with a notice)
+// Each distinct kind of issue found costs points, by severity:
 //
-// clamped to 0–100 and rounded. A page with both an error and a warning counts
-// in both shares, so a site where every page has errors and warnings scores 0.
-// Site-wide checks (no sitemap, redirect loops, blocked pages) are listed as
-// issues but don't move the score: they aren't a share of crawled pages.
+//   error up to 10 points, warning up to 4, notice up to 1
+//   cost = weight × (0.25 + 0.75 × share of pages affected)
+//   score = 100 − sum of costs, clamped to 0–100 and rounded
+//
+// An issue on a single page costs a quarter of its weight; on every page, all
+// of it. So one problem repeated on every page (a footer link, a template tag)
+// costs at most 10 points instead of zeroing the score, and the score only
+// nears 0 when there are many different serious problems. Site-wide yes/no
+// checks (no sitemap) count as affecting every page; lists of URLs that aren't
+// crawled pages (redirect loops, blocked pages) use their count over pages.
 
-import { SEVERITY_WEIGHT } from "./issues";
+import { ISSUE_BY_KEY, type Severity } from "./issues";
 
-export function healthScore(input: { pages: number; errorPages: number; warningPages: number; noticePages: number }): number | null {
-  if (!input.pages || input.pages <= 0) return null;
-  const share = (n: number) => Math.min(Math.max(n, 0), input.pages) / input.pages;
-  const penalty = SEVERITY_WEIGHT.error * share(input.errorPages) + SEVERITY_WEIGHT.warning * share(input.warningPages) + SEVERITY_WEIGHT.notice * share(input.noticePages);
-  return Math.round(Math.min(100, Math.max(0, 100 - 100 * penalty)));
+export const SCORE_WEIGHTS: Record<Severity, number> = { error: 10, warning: 4, notice: 1 };
+/** Share of the weight an issue costs as soon as it's found at all. */
+export const PRESENCE_SHARE = 0.25;
+
+export interface ScoredIssue {
+  key: string;
+  severity: Severity;
+  /** Pages affected (site-wide checks: occurrences). */
+  count: number;
 }
+
+/** Points one kind of issue takes off the score. */
+export function issueCost(issue: ScoredIssue, pages: number): number {
+  if (issue.count <= 0) return 0;
+  const presence = ISSUE_BY_KEY[issue.key]?.presence === true;
+  const share = presence ? 1 : Math.min(1, issue.count / Math.max(pages, 1));
+  return SCORE_WEIGHTS[issue.severity] * (PRESENCE_SHARE + (1 - PRESENCE_SHARE) * share);
+}
+
+/** 0–100, or null when nothing was crawled. */
+export function healthScore(input: { pages: number; issues: ScoredIssue[] }): number | null {
+  if (!input.pages || input.pages <= 0) return null;
+  const cost = input.issues.reduce((sum, i) => sum + issueCost(i, input.pages), 0);
+  return Math.round(Math.min(100, Math.max(0, 100 - cost)));
+}
+
+/** One line for the tab and reports. */
+export const SCORE_EXPLANATION = "Each kind of issue found costs points: an error up to 10, a warning up to 4, a notice up to 1. An issue on one page costs a quarter of that; on every page, all of it.";
 
 /** Words for a score band, for headers and reports. */
 export function scoreBand(score: number | null): { label: string; tone: "good" | "warning" | "critical" | "neutral" } {
   if (score === null) return { label: "No score yet", tone: "neutral" };
-  // A site whose every page has only warnings scores 60 at most: "Needs work", not "Poor".
   if (score >= 80) return { label: "Healthy", tone: "good" };
   if (score >= 50) return { label: "Needs work", tone: "warning" };
   return { label: "Poor", tone: "critical" };

@@ -3,6 +3,8 @@
 // network), shared by the crawl processor, the Site Audit tab and reports.
 // Each detector is unit-tested against sandbox fixtures.
 
+import { isExcludedUrl } from "./urls";
+
 export type Severity = "error" | "warning" | "notice";
 export type Category = "crawlability" | "content" | "links" | "performance" | "security" | "images";
 
@@ -49,8 +51,14 @@ export interface SiteInputs {
   nonIndexable?: { url: string; reason?: string | null }[];
   /** on_page/redirect_chains items */
   redirectChains?: { is_redirect_loop?: boolean | null; chain?: { from_url?: string; to_url?: string }[] | null }[];
-  /** on_page/links items (any; filtered to broken internal links here) */
+  /** on_page/links items (any; only broken ones are used) */
   links?: { link_from?: string; link_to?: string; direction?: string; is_broken?: boolean | null; page_to_status_code?: number | null }[];
+  /** True when `links` holds every broken link of the crawl, so pages can be judged by them alone. */
+  linksComplete?: boolean;
+  /** Broken resources (images, scripts, styles) from on_page/resources; undefined = not fetched. */
+  brokenResources?: { url: string }[];
+  /** Pages using each broken resource (on_page/pages_by_resource), for resources that aren't excluded. */
+  resourcePages?: Record<string, string[]>;
 }
 
 export interface IssueDef {
@@ -60,8 +68,10 @@ export interface IssueDef {
   category: Category;
   /** One line, plain English. */
   fix: string;
-  /** "page": counted per crawled page and part of the health score. "site": site-wide check, shown but not scored. */
+  /** "page": counted per crawled page. "site": a site-wide check (a list of URLs, or a yes/no check). */
   scope: "page" | "site";
+  /** Site-wide yes/no check (no sitemap, no robots.txt): when found, it applies to the whole site. */
+  presence?: boolean;
   /** Page detector (scope "page"). */
   test?: (p: DfsPage) => boolean;
 }
@@ -78,12 +88,14 @@ export const ISSUES: IssueDef[] = [
   // --- Errors ---
   { key: "http_4xx", label: "Pages returning 4xx errors", severity: "error", category: "crawlability", scope: "page", fix: "Restore the page or 301-redirect it to the closest live page, and update links pointing to it.", test: (p) => c(p, "is_4xx_code") || ((p.status_code ?? 0) >= 400 && (p.status_code ?? 0) < 500) },
   { key: "http_5xx", label: "Pages returning 5xx server errors", severity: "error", category: "crawlability", scope: "page", fix: "Check the server or hosting logs for these URLs; server errors stop Google from reading the page.", test: (p) => c(p, "is_5xx_code") || (p.status_code ?? 0) >= 500 },
+  // Broken links and resources are re-checked per page in analyseCrawl, leaving out CDN/system paths and ignored URLs.
   { key: "broken_internal_links", label: "Pages with broken links", severity: "error", category: "links", scope: "page", fix: "Update or remove links that point to missing pages.", test: (p) => p.broken_links === true },
   { key: "broken_resources", label: "Pages with broken images, scripts or styles", severity: "error", category: "links", scope: "page", fix: "Re-upload or fix the paths of missing images, scripts and stylesheets.", test: (p) => p.broken_resources === true },
   { key: "redirect_loop", label: "Redirect loops", severity: "error", category: "crawlability", scope: "site", fix: "Break the loop so each URL redirects once, straight to a live page." },
   { key: "non_https", label: "Pages served over plain HTTP", severity: "error", category: "security", scope: "page", fix: "Redirect HTTP to HTTPS sitewide and update internal links to https://.", test: (p) => c(p, "is_http") || p.url.startsWith("http://") },
   { key: "mixed_content", label: "HTTPS pages linking to HTTP", severity: "error", category: "security", scope: "page", fix: "Change http:// links and resources on these pages to https://.", test: (p) => c(p, "https_to_http_links") },
-  { key: "blocked_but_linked", label: "Linked pages blocked from Google (robots.txt or noindex)", severity: "error", category: "crawlability", scope: "site", fix: "If these pages should rank, remove the noindex tag or robots.txt rule; if not, stop linking to them." },
+  // A warning, not an error: many sites noindex pages on purpose (bookings, carts, filters). Add those to the client's ignore patterns.
+  { key: "blocked_but_linked", label: "Linked pages blocked from Google (robots.txt or noindex)", severity: "warning", category: "crawlability", scope: "site", fix: "If these pages should rank, remove the noindex tag or robots.txt rule. If they're blocked on purpose (bookings, carts, filters), add them to the audit's ignore patterns." },
   { key: "duplicate_title", label: "Duplicate page titles", severity: "error", category: "content", scope: "page", fix: "Give each page its own title that says what's on it.", test: (p) => p.duplicate_title === true || c(p, "duplicate_title_tag") },
   { key: "missing_title", label: "Pages missing a title", severity: "error", category: "content", scope: "page", fix: "Add a unique <title> of about 50–60 characters.", test: (p) => isHtml(p) && ok200(p) && (c(p, "no_title") || !p.meta?.title?.trim()) },
 
@@ -101,8 +113,8 @@ export const ISSUES: IssueDef[] = [
   { key: "image_missing_alt", label: "Images missing alt text", severity: "warning", category: "images", scope: "page", fix: "Describe each meaningful image in its alt attribute.", test: (p) => c(p, "no_image_alt") },
   { key: "canonical_issue", label: "Canonical problems", severity: "warning", category: "crawlability", scope: "page", fix: "Point canonicals straight at the live, preferred URL (no redirects, chains or broken targets).", test: (p) => c(p, "recursive_canonical") || c(p, "canonical_chain") || c(p, "canonical_to_redirect") || c(p, "canonical_to_broken") },
   { key: "orphan_page", label: "Orphan pages (no internal links in)", severity: "warning", category: "links", scope: "page", fix: "Link to these pages from relevant pages and the menu so visitors and Google can find them.", test: (p) => c(p, "is_orphan_page") },
-  { key: "no_sitemap", label: "No XML sitemap found", severity: "warning", category: "crawlability", scope: "site", fix: "Publish a sitemap.xml, list it in robots.txt and submit it in Search Console." },
-  { key: "no_robots_txt", label: "No robots.txt found", severity: "notice", category: "crawlability", scope: "site", fix: "Add a robots.txt (it can be short) that lists the sitemap." },
+  { key: "no_sitemap", label: "No XML sitemap found", severity: "warning", category: "crawlability", scope: "site", presence: true, fix: "Publish a sitemap.xml, list it in robots.txt and submit it in Search Console." },
+  { key: "no_robots_txt", label: "No robots.txt found", severity: "notice", category: "crawlability", scope: "site", presence: true, fix: "Add a robots.txt (it can be short) that lists the sitemap." },
 
   // --- Notices ---
   { key: "long_url", label: "Long URLs", severity: "notice", category: "crawlability", scope: "page", fix: "Use short, readable URLs for new pages (keep existing ones unless you redirect them).", test: (p) => (p.url_length ?? p.url.length) > LIMITS.longUrl },
@@ -149,20 +161,57 @@ const hostOf = (u: string) => {
   }
 };
 
-/** Turns crawl results into issue counts. Only HTML pages are analysed; resources (images, scripts) are not. */
-export function analyseCrawl(pages: DfsPage[], site: SiteInputs, targetHost: string): CrawlFindings {
+/**
+ * Turns crawl results into issue counts. Only HTML pages are analysed;
+ * resources (images, scripts) are not. URLs on CDN/system paths (Cloudflare's
+ * /cdn-cgi/…) and the client's ignore patterns are left out everywhere: as
+ * pages, as broken link or resource targets, and as blocked pages.
+ */
+export function analyseCrawl(pages: DfsPage[], site: SiteInputs, targetHost: string, opts: { ignore?: string[] } = {}): CrawlFindings {
+  const ignore = opts.ignore ?? [];
+  const excluded = (u: string) => isExcludedUrl(u, ignore);
   const host = targetHost.replace(/^www\./, "").toLowerCase();
   const sameSite = (u: string) => {
     const h = hostOf(u);
     return h === host || h.endsWith(`.${host}`);
   };
-  const html = pages.filter((p) => isHtml(p) && p.url);
+  const keyOf = (u: string) => u.replace(/#.*$/, "").replace(/\/$/, "").toLowerCase();
+
+  // Broken links per page, excluded targets left out.
+  const brokenLinks = (site.links ?? []).filter((l) => l.is_broken === true && l.link_from && l.link_to);
+  const realBrokenFrom = new Map<string, string[]>();
+  const anyBrokenFrom = new Set<string>();
+  for (const l of brokenLinks) {
+    const from = keyOf(l.link_from!);
+    anyBrokenFrom.add(from);
+    if (excluded(l.link_to!)) continue;
+    (realBrokenFrom.get(from) ?? realBrokenFrom.set(from, []).get(from)!).push(l.link_to!);
+  }
+  const hasBrokenLink = (p: DfsPage) => {
+    const k = keyOf(p.url);
+    if (realBrokenFrom.has(k)) return true;
+    // Every broken link known: only real ones count. Otherwise trust the page flag unless all its known ones are excluded.
+    if (site.linksComplete) return false;
+    return p.broken_links === true && !anyBrokenFrom.has(k);
+  };
+
+  // Broken resources: only ones that aren't excluded, on the pages that use them when known.
+  const realResources = site.brokenResources?.filter((r) => r.url && !excluded(r.url));
+  const resourcePages = new Set(Object.entries(site.resourcePages ?? {}).filter(([u]) => !excluded(u)).flatMap(([, ps]) => ps.map(keyOf)));
+  const pagesKnownForAll = !!realResources && realResources.every((r) => site.resourcePages?.[r.url]);
+  const hasBrokenResource = (p: DfsPage) => {
+    if (realResources && realResources.length === 0) return false;
+    if (pagesKnownForAll) return resourcePages.has(keyOf(p.url));
+    return p.broken_resources === true;
+  };
+
+  const html = pages.filter((p) => isHtml(p) && p.url && !excluded(p.url));
   const byKey = new Map<string, Set<string>>();
   const add = (key: string, url: string) => (byKey.get(key) ?? byKey.set(key, new Set()).get(key)!).add(url);
   let errorPages = 0, warningPages = 0, noticePages = 0;
   const pageRows: CrawlFindings["pageRows"] = [];
   for (const p of html) {
-    const keys = pageIssueKeys(p);
+    const keys = pageIssueKeys({ ...p, broken_links: hasBrokenLink(p), broken_resources: hasBrokenResource(p) });
     for (const k of keys) add(k, p.url);
     const sev = new Set(keys.map((k) => ISSUE_BY_KEY[k].severity));
     if (sev.has("error")) errorPages++;
@@ -175,20 +224,21 @@ export function analyseCrawl(pages: DfsPage[], site: SiteInputs, targetHost: str
   if (dc.sitemap === false) add("no_sitemap", "");
   if (dc.robots_txt === false) add("no_robots_txt", "");
   for (const r of site.redirectChains ?? []) {
-    if (r.is_redirect_loop) add("redirect_loop", r.chain?.[0]?.from_url ?? "");
+    const from = r.chain?.[0]?.from_url ?? "";
+    if (r.is_redirect_loop && !(from && excluded(from))) add("redirect_loop", from);
   }
   const blockedReasons = /robots|noindex|meta|header/i;
   for (const n of site.nonIndexable ?? []) {
-    if (n.url && sameSite(n.url) && blockedReasons.test(n.reason ?? "")) add("blocked_but_linked", n.url);
+    if (n.url && sameSite(n.url) && !excluded(n.url) && blockedReasons.test(n.reason ?? "")) add("blocked_but_linked", n.url);
   }
-  // Broken internal links: richer samples (the target URLs) when the links list is available.
-  const brokenTargets = (site.links ?? []).filter((l) => l.is_broken === true && l.direction === "internal" && l.link_to).map((l) => l.link_to!);
+  // Samples for broken links: the broken targets themselves.
+  const brokenTargets = [...new Set([...realBrokenFrom.values()].flat())];
   const issues: FoundIssue[] = [];
   for (const d of ISSUES) {
     const urls = byKey.get(d.key);
     if (!urls?.size) continue;
     const real = [...urls].filter(Boolean);
-    const samples = d.key === "broken_internal_links" && brokenTargets.length ? [...new Set(brokenTargets)] : real;
+    const samples = d.key === "broken_internal_links" && brokenTargets.length ? brokenTargets : real;
     issues.push({ key: d.key, severity: d.severity, category: d.category, count: d.scope === "site" ? Math.max(1, real.length) : urls.size, sampleUrls: samples.slice(0, MAX_SAMPLES) });
   }
   return { pages: html.length, issues, errorPages, warningPages, noticePages, pageRows };
