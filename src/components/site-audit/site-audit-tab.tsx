@@ -10,7 +10,7 @@ import { describeAuditSchedule } from "@/lib/site-audit/schedule";
 import { formatDate, relativeTime } from "@/lib/time";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { buttonVariants } from "@/components/ui/button";
-import { AuditScoreBody, AuditSummaryBody } from "./audit-widgets";
+import { AuditScoreBody, AuditSummaryBody, type AuditTarget } from "./audit-widgets";
 import { AuditAutoRefresh, AuditIssueTable, AuditSettingsDrawer, AuditSettingsForm, ReanalyzeButton, RunAuditButton, StopCrawlButton } from "./site-audit-controls";
 import { SCORE_EXPLANATION } from "@/lib/site-audit/score";
 
@@ -55,7 +55,9 @@ export async function SiteAuditTab({ clientId, agencyId, canEdit, isAdmin, staff
   const spent = staff ? await monthSpend(agencyId) : 0;
   const capLeft = (agency?.siteAuditMonthlyCapUsd ?? 0) - spent;
   const failedSince = lastAttempt && (lastAttempt.status === "failed" || lastAttempt.status === "skipped") && (!latest || lastAttempt.createdAt > latest.createdAt) ? lastAttempt : null;
-  const samples = Object.fromEntries((latest ? await prisma.siteAuditIssue.findMany({ where: { auditId: latest.id }, select: { issueKey: true, sampleUrls: true } }) : []).map((i) => [i.issueKey, Array.isArray(i.sampleUrls) ? (i.sampleUrls as string[]).filter(Boolean) : []]));
+  const issueDetail = latest ? await prisma.siteAuditIssue.findMany({ where: { auditId: latest.id }, select: { issueKey: true, sampleUrls: true, targets: true } }) : [];
+  const samples = Object.fromEntries(issueDetail.map((i) => [i.issueKey, Array.isArray(i.sampleUrls) ? (i.sampleUrls as string[]).filter(Boolean) : []]));
+  const targets = Object.fromEntries(issueDetail.filter((i) => Array.isArray(i.targets)).map((i) => [i.issueKey, i.targets as unknown as AuditTarget[]]));
   const settingsValue = { targetUrl: config.targetUrl, schedule: config.schedule, dayOfWeek: config.dayOfWeek ?? 1, dayOfMonth: config.dayOfMonth ?? 1, maxPages: config.maxPages, enableJs: config.enableJs, lighthouse: config.lighthouse, active: config.active, ignorePatterns: config.ignorePatterns };
   // The latest results predate the current rules, or the ignore patterns changed since: offer a free re-check.
   const samePatterns = (a: string[], b: string[]) => a.length === b.length && a.every((x) => b.includes(x));
@@ -150,7 +152,7 @@ export async function SiteAuditTab({ clientId, agencyId, canEdit, isAdmin, staff
             <CardDescription>Grouped by severity. Open an issue for how to fix it and example pages.{latest.detailPrunedAt && " Example pages are kept for the last 6 crawls only."}</CardDescription>
           </CardHeader>
           <CardContent>
-            {view.issues.length ? <AuditIssueTable rows={view.issues} sampleUrls={samples} hasPrevious={!!view.previous} /> : <p className="text-sm text-text-2">No issues found in the latest crawl.</p>}
+            {view.issues.length ? <AuditIssueTable rows={view.issues} sampleUrls={samples} targets={targets} hasPrevious={!!view.previous} /> : <p className="text-sm text-text-2">No issues found in the latest crawl.</p>}
           </CardContent>
         </Card>
       )}

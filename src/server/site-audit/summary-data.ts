@@ -23,6 +23,11 @@ export async function auditSummaryData(auditId: string): Promise<string> {
     "Issues (severity | issue | category | pages affected now | previous crawl | change | how to fix):",
     ...rows.map((r) => `- ${r.severity} | ${r.label} | ${CATEGORY_LABEL[r.category]} | ${r.count}${r.siteWide ? " (site-wide check)" : ""} | ${r.previous ?? "n/a"} | ${previous ? r.change : "first crawl"} | ${r.fix}`),
   ];
+  for (const i of audit.issues) {
+    if (!Array.isArray(i.targets) || !i.targets.length) continue;
+    lines.push("", `${i.issueKey === "broken_resources" ? "Resources that failed to load" : "Broken link targets"} (URL | HTTP status | pages using it):`);
+    for (const t of (i.targets as unknown as { url: string; status: number | null; pages: number }[]).slice(0, 10)) lines.push(`- ${t.url} | ${t.status ?? "no response"} | ${t.pages}`);
+  }
   const lh = Array.isArray(audit.lighthouse) ? (audit.lighthouse as unknown as LighthouseRow[]) : [];
   if (lh.length) {
     lines.push("", "Page speed (Lighthouse, mobile; performance 0–100, LCP = largest content paint in ms, CLS = layout shift, TBT = blocking time in ms):");

@@ -71,7 +71,23 @@ function ChangeBadge({ change, previous }: { change: AuditIssueLite["change"]; p
 }
 
 /** Issues with severity, pages affected, change and how to fix (expand for fix guidance). */
-export function AuditIssueList({ rows, sampleUrls, compact = false }: { rows: AuditIssueLite[]; sampleUrls?: Record<string, string[]>; compact?: boolean }) {
+export interface AuditTarget { url: string; status: number | null; pages: number }
+
+/** Broken resources or link targets: the URL that fails, its HTTP status and how many pages use it. */
+function TargetList({ targets }: { targets: AuditTarget[] }) {
+  return (
+    <ul className="flex flex-col gap-0.5 text-xs">
+      {targets.map((t) => (
+        <li key={t.url} className="flex items-center gap-2">
+          <a href={t.url} target="_blank" rel="noreferrer noopener" className="min-w-0 truncate text-brand-text hover:underline" title={t.url}>{t.url}</a>
+          <span className="shrink-0 text-text-3 tabular">{t.status ? `HTTP ${t.status}` : "no response"} · used by {t.pages} page{t.pages === 1 ? "" : "s"}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+export function AuditIssueList({ rows, sampleUrls, targets, compact = false }: { rows: AuditIssueLite[]; sampleUrls?: Record<string, string[]>; targets?: Record<string, AuditTarget[]>; compact?: boolean }) {
   return (
     <ul className="divide-y divide-border">
       {rows.map((r) => (
@@ -87,7 +103,13 @@ export function AuditIssueList({ rows, sampleUrls, compact = false }: { rows: Au
             </summary>
             <div className="mt-2 flex flex-col gap-1.5 pl-[5.25rem] text-sm">
               <p><span className="font-medium">How to fix: </span>{r.fix}</p>
-              {sampleUrls?.[r.key]?.length ? (
+              {targets?.[r.key]?.length ? (
+                <div className="flex flex-col gap-1">
+                  <p className="text-xs font-medium text-text-2">{r.key === "broken_resources" ? "Resources that failed to load" : "Links that fail"}</p>
+                  <TargetList targets={targets[r.key]} />
+                </div>
+              ) : null}
+              {targets?.[r.key]?.length ? null : sampleUrls?.[r.key]?.length ? (
                 <ul className="flex flex-col gap-0.5 text-xs">
                   {sampleUrls[r.key].map((u) => <li key={u} className="truncate"><a href={u} target="_blank" rel="noreferrer noopener" className="text-brand-text hover:underline">{u}</a></li>)}
                 </ul>

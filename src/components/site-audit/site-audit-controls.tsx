@@ -12,7 +12,7 @@ import { AUDIT_SCHEDULES, LIGHTHOUSE_MODES, MAX_PAGES_LIMIT } from "@/lib/site-a
 import { CATEGORIES, CATEGORY_LABEL, SEVERITIES, SEVERITY_LABEL, type Category } from "@/lib/site-audit/issues";
 import { WEEKDAYS } from "@/lib/report-schedule";
 import type { AuditIssueLite } from "@/lib/dashboards/widget-data";
-import { AuditIssueList } from "./audit-widgets";
+import { AuditIssueList, type AuditTarget } from "./audit-widgets";
 
 const usd = (n: number) => n.toLocaleString("en-US", { style: "currency", currency: "USD", minimumFractionDigits: n < 1 ? 3 : 2, maximumFractionDigits: n < 1 ? 3 : 2 });
 
@@ -194,7 +194,7 @@ export function AuditAutoRefresh({ active }: { active: boolean }) {
 }
 
 /** Issues grouped by severity with category and change filters; expand a row for how to fix it and example pages. */
-export function AuditIssueTable({ rows, sampleUrls, hasPrevious }: { rows: AuditIssueLite[]; sampleUrls: Record<string, string[]>; hasPrevious: boolean }) {
+export function AuditIssueTable({ rows, sampleUrls, targets, hasPrevious }: { rows: AuditIssueLite[]; sampleUrls: Record<string, string[]>; targets?: Record<string, AuditTarget[]>; hasPrevious: boolean }) {
   const [category, setCategory] = useState<"" | Category>("");
   const [change, setChange] = useState<"" | "new" | "fixed" | "worse">("");
   const visible = useMemo(() => rows.filter((r) => (!category || r.category === category) && (!change || r.change === change)), [rows, category, change]);
@@ -223,7 +223,7 @@ export function AuditIssueTable({ rows, sampleUrls, hasPrevious }: { rows: Audit
         return (
           <section key={sev} aria-label={SEVERITY_LABEL[sev]}>
             <h3 className="mb-1 text-sm font-semibold">{SEVERITY_LABEL[sev]} <span className="font-normal text-text-3">({group.filter((r) => r.change !== "fixed").length})</span></h3>
-            <div className="rounded-md border border-border"><AuditIssueList rows={group} sampleUrls={sampleUrls} compact /></div>
+            <div className="rounded-md border border-border"><AuditIssueList rows={group} sampleUrls={sampleUrls} targets={targets} compact /></div>
           </section>
         );
       })}
