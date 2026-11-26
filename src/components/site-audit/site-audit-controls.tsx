@@ -2,8 +2,8 @@
 
 import { useActionState, useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Play, Settings2, X } from "lucide-react";
-import { runSiteAuditNow, saveSiteAuditConfig, type SiteAuditFormState } from "@/app/(app)/clients/[id]/site-audit-actions";
+import { Play, RefreshCw, Settings2, Square, X } from "lucide-react";
+import { reanalyzeSiteAuditNow, runSiteAuditNow, saveSiteAuditConfig, stopSiteAuditNow, type SiteAuditFormState } from "@/app/(app)/clients/[id]/site-audit-actions";
 import { useFormSubmit } from "@/components/use-form-submit";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
@@ -34,6 +34,7 @@ export interface AuditSettingsValue {
   enableJs: boolean;
   lighthouse: string;
   active: boolean;
+  ignorePatterns: string[];
 }
 
 /** The settings form: target URL, schedule, max pages, JavaScript rendering, Lighthouse; with a live cost estimate. */
@@ -93,6 +94,19 @@ export function AuditSettingsForm({ clientId, value, rates, onSaved }: { clientI
         <input type="checkbox" name="enableJs" className="mt-0.5" checked={enableJs} onChange={(e) => setEnableJs(e.target.checked)} />
         <span>Render JavaScript <span className="block text-xs text-text-3">Only for sites built with JavaScript frameworks. Costs about {rates.javascriptFactor}× as much per page.</span></span>
       </label>
+      <div className="flex flex-col gap-1">
+        <Label htmlFor="audit-ignore">Ignore URLs (one pattern per line)</Label>
+        <textarea
+          id="audit-ignore"
+          name="ignorePatterns"
+          rows={3}
+          defaultValue={value.ignorePatterns.join("\n")}
+          placeholder={"/book?*\n/cart*"}
+          className="w-full rounded-md border border-border bg-surface px-3 py-2 font-mono text-xs text-text placeholder:text-text-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+          aria-describedby="audit-ignore-help"
+        />
+        <span id="audit-ignore-help" className="text-xs text-text-3">Left out of the issues and score, e.g. pages noindexed on purpose. <code>*</code> matches anything: <code>/book?*</code> is every booking link. CDN and system paths such as Cloudflare&apos;s /cdn-cgi/ are always left out.</span>
+      </div>
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" name="active" value="on" defaultChecked={value.active} /> Scheduled crawls on
       </label>
@@ -214,6 +228,45 @@ export function AuditIssueTable({ rows, sampleUrls, hasPrevious }: { rows: Audit
         );
       })}
       {!visible.length && <p className="text-sm text-text-3">No issues match.</p>}
+    </div>
+  );
+}
+
+/** Admin, while a crawl runs: stop it. The pages crawled so far are still analysed. */
+export function StopCrawlButton({ clientId, stopping }: { clientId: string; stopping: boolean }) {
+  const [state, setState] = useState<SiteAuditFormState>(undefined);
+  const [pending, start] = useTransition();
+  const router = useRouter();
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        disabled={pending || stopping}
+        onClick={() => {
+          if (!window.confirm("Stop this crawl? The pages crawled so far are still analysed, and DataForSEO refunds the rest.")) return;
+          start(async () => { setState(await stopSiteAuditNow(clientId)); router.refresh(); });
+        }}
+      >
+        <Square className="h-3.5 w-3.5" aria-hidden /> {stopping ? "Stopping…" : pending ? "Stopping…" : "Stop crawl"}
+      </Button>
+      <Status state={state} />
+    </div>
+  );
+}
+
+/** Admin: re-check the latest crawl with the current rules and ignore patterns (free, no new crawl). */
+export function ReanalyzeButton({ clientId, outdated }: { clientId: string; outdated: boolean }) {
+  const [state, setState] = useState<SiteAuditFormState>(undefined);
+  const [pending, start] = useTransition();
+  const router = useRouter();
+  return (
+    <div className="flex flex-col items-start gap-1">
+      <Button type="button" size="sm" variant={outdated ? "default" : "outline"} disabled={pending} onClick={() => start(async () => { setState(await reanalyzeSiteAuditNow(clientId)); router.refresh(); })}>
+        <RefreshCw className={`h-3.5 w-3.5 ${pending ? "animate-spin" : ""}`} aria-hidden /> {pending ? "Re-checking…" : "Re-check with current settings"}
+      </Button>
+      <Status state={state} />
     </div>
   );
 }

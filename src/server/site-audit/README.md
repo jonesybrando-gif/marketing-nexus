@@ -27,6 +27,33 @@ both call `runSiteAuditJobs`); while a crawl is running the in-process scheduler
 also polls every 2 minutes, and "Run audit now" polls for 20 minutes after the
 click. No inbound webhooks (`pingback_url`) are used.
 
+## Exclusions (false positives)
+`@/lib/site-audit/urls.ts`: URLs on CDN and platform system paths (Cloudflare's
+`/cdn-cgi/` email protection, `/.well-known/`, `/wp-admin/`, `/wp-json/` …) and
+the client's own **ignore patterns** (Settings drawer, e.g. `/book?*`) are left
+out everywhere: as crawled pages, as broken link or resource targets, and as
+blocked pages. Broken links are judged per page from DataForSEO's full list of
+broken links (so a page whose only "broken" link is `/cdn-cgi/l/email-protection`
+isn't counted), and broken resources from the resources list plus the pages
+using each one; when a list is too long to read, DataForSEO's own per-page flag
+is used instead. "Linked pages blocked from Google" is a warning: many sites
+noindex bookings, carts or filters on purpose.
+
+## Stop, re-check, page speed
+- **Stop crawl** (admin, while crawling): `on_page/force_stop`; DataForSEO keeps
+  the pages crawled so far and refunds the rest, and the audit is completed
+  from those pages with a note.
+- **Re-check with current settings** (admin, free): `reanalyzeAudit` reads a
+  finished crawl back from DataForSEO (summary, pages and lists cost $0) and
+  re-analyses it with the current rules and ignore patterns. No new crawl or
+  Lighthouse test. If DataForSEO no longer holds the crawl, the stored issue
+  counts are re-scored with the current formula and severities instead
+  (exclusions then apply from the next crawl). `SiteAudit.analysisVersion` and
+  `SiteAudit.ignorePatterns` show when results predate the current rules.
+- **Lighthouse**: a failed test is retried once; the reason is stored and shown
+  (e.g. a 403 from a site behind Cloudflare: its bot protection blocked the
+  tester). DataForSEO doesn't charge for failed tests.
+
 ## Errors
 `engine.ts › classifyError` maps DataForSEO errors to `bad_credentials`,
 `insufficient_balance`, `invalid_target`, `rate_limit` or `provider_error`.
@@ -36,10 +63,13 @@ audit by hand. Rate limits and provider errors are retried on the next poll
 until the 24 h timeout.
 
 ## Score and changes
-- Health score (`@/lib/site-audit/score.ts`): `100 − 100 × (1.0 × share of pages
-  with an error + 0.4 × share with a warning + 0.1 × share with a notice)`,
-  clamped 0–100. Site-wide checks (sitemap, redirect loops, blocked pages) are
-  listed but not scored. DataForSEO's `onpage_score` is stored too.
+- Health score (`@/lib/site-audit/score.ts`, one function): each distinct kind
+  of issue costs `weight × (0.25 + 0.75 × share of pages affected)` with weights
+  error 10, warning 4, notice 1; score = 100 − total, clamped 0–100. One issue on
+  every page costs at most 10 points, so a single sitewide problem can't zero
+  the score. Yes/no site checks (no sitemap) count as every page; lists of
+  non-page URLs (redirect loops, blocked pages) use count ÷ pages. DataForSEO's
+  `onpage_score` is stored too.
 - Changes (`@/lib/site-audit/diff.ts`): new / fixed / worse / better against the
   previous completed crawl (or, in report widgets, the last crawl before the
   period), where worse/better means a change of at least 10% or 5 pages.

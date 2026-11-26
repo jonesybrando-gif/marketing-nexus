@@ -1,0 +1,55 @@
+{
+ "version": "0.1.20261117",
+ "status_code": 20000,
+ "status_message": "Ok.",
+ "time": "5.2329 sec.",
+ "cost": 0,
+ "tasks_count": 1,
+ "tasks_error": 1,
+ "tasks": [
+  {
+   "id": "fixture",
+   "status_code": 50301,
+   "status_message": "Lighthouse encountered an error with the following code: ERRORED_DOCUMENT_REQUEST",
+   "time": "5.1667 sec.",
+   "cost": 0,
+   "result_count": 0,
+   "path": [
+    "v3",
+    "on_page",
+    "lighthouse",
+    "live",
+    "json"
+   ],
+   "data": {
+    "api": "on_page",
+    "function": "lighthouse",
+    "url": "https://galaxyparties.biz/",
+    "for_mobile": true,
+    "categories": [
+     "performance"
+    ]
+   },
+   "result": [
+    {
+     "requestedUrl": "https://galaxyparties.biz/",
+     "finalUrl": "https://galaxyparties.biz/",
+     "runtimeError": {
+      "code": "ERRORED_DOCUMENT_REQUEST",
+      "message": "Lighthouse was unable to reliably load the page you requested. Make sure you are testing the correct URL and that the server is properly responding to all requests. (Status code: 403)",
+      "artifactKey": "PageLoadError"
+     },
+     "runWarnings": [
+      "Lighthouse was unable to reliably load the page you requested. Make sure you are testing the correct URL and that the server is properly responding to all requests. (Status code: 403)"
+     ],
+     "categories": {
+      "performance": {
+       "score": null
+      }
+     },
+     "audits": {}
+    }
+   ]
+  }
+ ]
+}

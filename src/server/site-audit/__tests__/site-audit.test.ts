@@ -4,11 +4,12 @@ import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { PrismaClient } from "@prisma/client";
 import { analyseCrawl, ISSUES, pageIssueKeys, type DfsPage } from "@/lib/site-audit/issues";
-import { healthScore, scoreBand } from "@/lib/site-audit/score";
+import { healthScore, issueCost, scoreBand } from "@/lib/site-audit/score";
+import { isSystemUrl, matchesIgnore, parseIgnorePatterns } from "@/lib/site-audit/urls";
 import { changed, diffIssues, summarizeDiff } from "@/lib/site-audit/diff";
 import { checkCostCap, DEFAULT_ONPAGE_RATES, estimateAuditCost, lighthouseUrlCount } from "@/lib/site-audit/cost";
 import { nextAuditRun } from "@/lib/site-audit/schedule";
-import { classifyError, collectCrawl, crawlProgress, normalizeTargetUrl, runLighthouse, startCrawl } from "../engine";
+import { classifyError, collectCrawl, crawlProgress, lighthouseFailure, normalizeTargetUrl, runLighthouse, startCrawl, stopCrawl } from "../engine";
 import { DataForSeoError } from "../../data-sources/dataforseo/api";
 import { issueRows } from "../queries";
 
@@ -122,23 +123,135 @@ describe("issue mapping (sandbox pages)", () => {
 });
 
 describe("health score", () => {
-  it("is 100 minus the weighted share of affected pages, clamped and rounded", () => {
-    expect(healthScore({ pages: 100, errorPages: 0, warningPages: 0, noticePages: 0 })).toBe(100);
-    expect(healthScore({ pages: 100, errorPages: 10, warningPages: 0, noticePages: 0 })).toBe(90);
-    expect(healthScore({ pages: 100, errorPages: 10, warningPages: 50, noticePages: 100 })).toBe(60); // 100 − (10 + 20 + 10)
-    expect(healthScore({ pages: 10, errorPages: 10, warningPages: 10, noticePages: 10 })).toBe(0); // 150% → clamped
-    expect(healthScore({ pages: 3, errorPages: 1, warningPages: 0, noticePages: 0 })).toBe(67);
-    expect(healthScore({ pages: 0, errorPages: 0, warningPages: 0, noticePages: 0 })).toBeNull();
+  const e = (key: string, count: number) => ({ key, severity: "error" as const, count });
+  const w = (key: string, count: number) => ({ key, severity: "warning" as const, count });
+  const n = (key: string, count: number) => ({ key, severity: "notice" as const, count });
+  it("costs each kind of issue by severity and share of pages: weight × (0.25 + 0.75 × share)", () => {
+    expect(healthScore({ pages: 100, issues: [] })).toBe(100);
+    expect(issueCost(e("http_4xx", 1), 100)).toBeCloseTo(10 * (0.25 + 0.75 * 0.01));
+    expect(healthScore({ pages: 100, issues: [e("http_4xx", 1)] })).toBe(97); // 100 − 2.575
+    expect(healthScore({ pages: 100, issues: [w("missing_description", 50), n("missing_og", 100)] })).toBe(97); // 100 − 2.5 − 1 = 96.5
+    expect(healthScore({ pages: 0, issues: [] })).toBeNull();
+  });
+  it("one issue on every page costs at most its weight, never the whole score", () => {
+    // The Galaxy Parties case: one footer link broken on all 498 pages.
+    expect(healthScore({ pages: 498, issues: [e("broken_internal_links", 498)] })).toBe(90);
+    expect(healthScore({ pages: 498, issues: [e("broken_internal_links", 498), w("blocked_but_linked", 1000)] })).toBe(86);
+  });
+  it("only many different serious problems reach 0", () => {
+    const keys = ["http_4xx", "http_5xx", "broken_internal_links", "broken_resources", "non_https", "mixed_content", "duplicate_title", "missing_title", "redirect_loop", "blocked_but_linked", "slow_page"];
+    expect(healthScore({ pages: 10, issues: keys.map((k) => e(k, 10)) })).toBe(0);
+  });
+  it("site-wide yes/no checks count as affecting every page", () => {
+    expect(issueCost(w("no_sitemap", 1), 500)).toBe(4);
+    expect(issueCost(w("blocked_but_linked", 5), 500)).toBeCloseTo(4 * (0.25 + 0.75 * 0.01));
   });
   it("scores the sandbox crawl from its own findings", () => {
     const f = analyseCrawl(PAGES, { domainChecks: SUMMARY.domain_info.checks }, "dataforseo.com");
-    const s = healthScore({ pages: f.pages, errorPages: f.errorPages, warningPages: f.warningPages, noticePages: f.noticePages });
-    expect(s).toBe(Math.round(100 - 100 * (f.errorPages / 10 + 0.4 * f.warningPages / 10 + 0.1 * f.noticePages / 10)));
+    expect(healthScore({ pages: f.pages, issues: f.issues })).toBe(Math.round(100 - f.issues.reduce((s, i) => s + issueCost(i, f.pages), 0)));
   });
   it("bands", () => {
     expect(scoreBand(92).tone).toBe("good");
-    expect(scoreBand(60).tone).toBe("warning"); // every page with warnings only
+    expect(scoreBand(60).tone).toBe("warning");
     expect(scoreBand(40).tone).toBe("critical");
+  });
+});
+
+describe("excluded URLs and ignore patterns", () => {
+  it("knows CDN and system paths", () => {
+    expect(isSystemUrl("https://galaxyparties.biz/cdn-cgi/l/email-protection#a1b2")).toBe(true);
+    expect(isSystemUrl("/wp-json/wp/v2/posts")).toBe(true);
+    expect(isSystemUrl("https://galaxyparties.biz/contact")).toBe(false);
+  });
+  it("parses patterns and matches path and query, * for anything", () => {
+    const { patterns, errors } = parseIgnorePatterns("/book?*\n\n# comment\nhttps://galaxyparties.biz/cart*\nthank-you");
+    expect(errors).toEqual([]);
+    expect(patterns).toEqual(["/book?*", "/cart*", "/thank-you"]);
+    expect(matchesIgnore("https://galaxyparties.biz/book?city=Austin&state=TX", patterns)).toBe(true);
+    expect(matchesIgnore("https://galaxyparties.biz/book", patterns)).toBe(false); // needs the "?"
+    expect(matchesIgnore("https://galaxyparties.biz/booking", patterns)).toBe(false);
+    expect(matchesIgnore("https://galaxyparties.biz/cart/checkout", patterns)).toBe(true);
+    expect(matchesIgnore("https://galaxyparties.biz/THANK-YOU", patterns)).toBe(true);
+    expect(parseIgnorePatterns(Array.from({ length: 60 }, (_, i) => `/p${i}`).join("\n")).errors).toHaveLength(1);
+  });
+});
+
+/** The Galaxy Parties crawl in miniature: every page links to Cloudflare's email protection, booking links are noindexed on purpose. */
+function galaxyCrawl() {
+  const pages = Array.from({ length: 6 }, (_, i) => {
+    const p = clean();
+    p.url = `https://galaxyparties.biz/${i ? `party-${i}` : ""}`;
+    p.broken_links = true; // DataForSEO's flag: the email-protection link "broke" on every page
+    p.broken_resources = true;
+    return p;
+  });
+  pages.push(Object.assign(clean(), { url: "https://galaxyparties.biz/cdn-cgi/l/email-protection", status_code: 403, checks: { ...clean().checks, is_4xx_code: true } }));
+  const links = pages.slice(0, 6).map((p) => ({ link_from: p.url, link_to: "https://galaxyparties.biz/cdn-cgi/l/email-protection#ab12", direction: "internal", is_broken: true }));
+  const nonIndexable = Array.from({ length: 20 }, (_, i) => ({ url: `https://galaxyparties.biz/book?city=City${i}&state=TX`, reason: "meta_tag" }));
+  return { pages, links, nonIndexable };
+}
+
+describe("false positives (Galaxy Parties)", () => {
+  it("leaves out Cloudflare email-protection links, its resources and its pages", () => {
+    const g = galaxyCrawl();
+    const f = analyseCrawl(g.pages, { links: g.links, linksComplete: true, brokenResources: [{ url: "https://galaxyparties.biz/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js" }], resourcePages: {}, nonIndexable: [] }, "galaxyparties.biz");
+    expect(f.pages).toBe(6); // the /cdn-cgi/ page itself isn't a site page
+    expect(f.issues.map((i) => i.key)).toEqual([]);
+  });
+  it("still counts a real broken link, only on the page that has it, with the target as the sample", () => {
+    const g = galaxyCrawl();
+    g.links.push({ link_from: "https://galaxyparties.biz/party-2", link_to: "https://galaxyparties.biz/old-page", direction: "internal", is_broken: true });
+    const f = analyseCrawl(g.pages, { links: g.links, linksComplete: true }, "galaxyparties.biz");
+    expect(f.issues.find((i) => i.key === "broken_internal_links")).toMatchObject({ count: 1, sampleUrls: ["https://galaxyparties.biz/old-page"] });
+  });
+  it("attributes a real broken resource to the pages that use it", () => {
+    const g = galaxyCrawl();
+    const img = "https://galaxyparties.biz/img/missing.jpg";
+    const f = analyseCrawl(g.pages, { links: g.links, linksComplete: true, brokenResources: [{ url: img }], resourcePages: { [img]: ["https://galaxyparties.biz/party-3"] } }, "galaxyparties.biz");
+    expect(f.issues.find((i) => i.key === "broken_resources")).toMatchObject({ count: 1, sampleUrls: ["https://galaxyparties.biz/party-3"] });
+  });
+  it("trusts DataForSEO's page flag when it couldn't list every broken link", () => {
+    const g = galaxyCrawl();
+    const p = Object.assign(clean(), { url: "https://galaxyparties.biz/unknown", broken_links: true });
+    const f = analyseCrawl([...g.pages, p], { links: g.links, linksComplete: false }, "galaxyparties.biz");
+    expect(f.issues.find((i) => i.key === "broken_internal_links")?.sampleUrls).toEqual(["https://galaxyparties.biz/unknown"]);
+  });
+  it("blocked booking links are a warning, and none with the client's ignore pattern", () => {
+    const g = galaxyCrawl();
+    const without = analyseCrawl(g.pages, { links: g.links, linksComplete: true, nonIndexable: g.nonIndexable }, "galaxyparties.biz");
+    expect(without.issues.find((i) => i.key === "blocked_but_linked")).toMatchObject({ severity: "warning", count: 20 });
+    const withIgnore = analyseCrawl(g.pages, { links: g.links, linksComplete: true, nonIndexable: g.nonIndexable }, "galaxyparties.biz", { ignore: ["/book?*"] });
+    expect(withIgnore.issues.find((i) => i.key === "blocked_but_linked")).toBeUndefined();
+  });
+  it("ignore patterns also leave matching pages out of the page count", () => {
+    const g = galaxyCrawl();
+    const f = analyseCrawl(g.pages, { links: g.links, linksComplete: true }, "galaxyparties.biz", { ignore: ["/party-*"] });
+    expect(f.pages).toBe(1);
+  });
+});
+
+describe("Lighthouse failures", () => {
+  it("explains a 403 from a site behind Cloudflare, retries once, and isn't charged", async () => {
+    let calls = 0;
+    const f = (async () => { calls++; return Response.json(fx("lighthouse_403")); }) as unknown as typeof fetch;
+    const r = await runLighthouse("login:pass", ["https://galaxyparties.biz/"], f, { server: "cloudflare", retryDelayMs: 0 });
+    expect(calls).toBe(2);
+    expect(r.cost).toBe(0);
+    expect(r.rows[0]).toMatchObject({ performance: null, errorCode: "ERRORED_DOCUMENT_REQUEST" });
+    expect(r.rows[0].error).toMatch(/refused the speed test \(HTTP 403\).*Cloudflare/);
+  });
+  it("keeps the second attempt when the retry works", async () => {
+    let calls = 0;
+    const f = (async () => Response.json(++calls === 1 ? fx("lighthouse_403") : fx("lighthouse"))) as unknown as typeof fetch;
+    const r = await runLighthouse("login:pass", ["https://dataforseo.com/"], f, { retryDelayMs: 0 });
+    expect(calls).toBe(2);
+    expect(r.rows[0]).toMatchObject({ performance: 82 });
+    expect(r.rows[0].error).toBeUndefined();
+  });
+  it("words other failures plainly", () => {
+    expect(lighthouseFailure({ code: "X", message: "Something (Status code: 500)" }, "", null)).toBe("The page returned HTTP 500 to the speed test.");
+    expect(lighthouseFailure({ code: "NO_FCP" }, "", null)).toMatch(/didn't show any content/);
+    expect(lighthouseFailure(null, "DataForSEO error 50000: Internal Error.", null)).toBe("DataForSEO error 50000: Internal Error.");
   });
 });
 
@@ -224,6 +337,8 @@ function sandboxReplay() {
     if (p === "/on_page/redirect_chains") return Response.json(fx("redirect_chains"));
     if (p === "/on_page/links") return Response.json(fx("links_broken"));
     if (p === "/on_page/lighthouse/live/json") return Response.json(fx("lighthouse"));
+    if (p === "/on_page/resources" || p === "/on_page/pages_by_resource") return Response.json({ status_code: 20000, status_message: "Ok.", tasks: [{ id: "r", status_code: 20000, status_message: "Ok.", cost: 0, result: [{ items: [] }] }] });
+    if (p === "/on_page/force_stop") return Response.json({ status_code: 20000, status_message: "Ok.", tasks: [{ id: "s", status_code: 20100, status_message: "Task Created.", cost: 0, result: null }] });
     return new Response("not found", { status: 404 });
   }) as typeof fetch;
   return { f, calls };
@@ -311,6 +426,75 @@ describe.skipIf(!hasDb)("site audit jobs (database, recorded sandbox responses)"
     } finally {
       setAiClientForTests(null);
     }
+  });
+
+  it("re-checks a finished crawl from DataForSEO for free with the client's ignore patterns", async () => {
+    const { reanalyzeAudit, ANALYSIS_VERSION } = await import("../jobs");
+    const { f, calls } = sandboxReplay();
+    const audit = await prisma.siteAudit.findFirstOrThrow({ where: { clientId, status: "completed" } });
+    await prisma.siteAudit.update({ where: { id: audit.id }, data: { analysisVersion: 1, healthScore: 0 } });
+    // Leave out every sandbox page but the homepage.
+    await prisma.siteAuditConfig.update({ where: { clientId }, data: { ignorePatterns: ["/?*", "/*?*", "/a*", "/b*", "/c*", "/d*", "/e*", "/f*", "/g*", "/h*", "/i*", "/j*", "/k*", "/l*", "/m*", "/n*", "/o*", "/p*", "/q*", "/r*", "/s*", "/t*", "/u*", "/v*", "/w*", "/x*", "/y*", "/z*"] } });
+    const r = await reanalyzeAudit(audit.id, { fetch: f });
+    expect(r.mode).toBe("refetched");
+    expect(calls.some((c) => c.path === "/on_page/task_post")).toBe(false); // no new crawl
+    expect(calls.some((c) => c.path === "/on_page/lighthouse/live/json")).toBe(false); // no new speed test
+    const after = await prisma.siteAudit.findUniqueOrThrow({ where: { id: audit.id } });
+    expect(after).toMatchObject({ analysisVersion: ANALYSIS_VERSION, pagesCrawled: 1, ignorePatterns: expect.arrayContaining(["/a*"]) });
+    expect(after.healthScore).toBeGreaterThan(0);
+    await prisma.siteAuditConfig.update({ where: { clientId }, data: { ignorePatterns: [] } });
+  });
+
+  it("falls back to re-scoring the stored counts when DataForSEO no longer has the crawl", async () => {
+    const { reanalyzeAudit } = await import("../jobs");
+    const gone = (async () => Response.json({ status_code: 20000, status_message: "Ok.", tasks: [{ id: "x", status_code: 40400, status_message: "Not Found.", result: null }] })) as unknown as typeof fetch;
+    const audit = await prisma.siteAudit.create({
+      data: { clientId, status: "completed", providerTaskId: "expired", targetUrl: "https://galaxyparties.biz", maxPages: 500, pagesCrawled: 498, healthScore: 0, finishedAt: new Date("2026-11-25T10:00:00Z"), createdAt: new Date("2026-11-25T09:00:00Z"),
+        issues: { create: [{ issueKey: "broken_internal_links", severity: "error", category: "links", count: 498 }, { issueKey: "blocked_but_linked", severity: "error", category: "crawlability", count: 1000 }] } },
+    });
+    const r = await reanalyzeAudit(audit.id, { fetch: gone });
+    expect(r).toEqual({ mode: "stored", before: 0, after: 86, speedRetried: 0 });
+    const issue = await prisma.siteAuditIssue.findFirstOrThrow({ where: { auditId: audit.id, issueKey: "blocked_but_linked" } });
+    expect(issue.severity).toBe("warning"); // re-graded with the current catalogue
+    await prisma.siteAudit.delete({ where: { id: audit.id } });
+  });
+
+  it("a re-check re-runs only the failed speed tests and stores the real reason (failed tests aren't charged)", async () => {
+    const { reanalyzeAudit } = await import("../jobs");
+    const tested: string[] = [];
+    const base = sandboxReplay().f;
+    const f = (async (url: string | URL, init?: RequestInit) => {
+      if (String(url).endsWith("/on_page/lighthouse/live/json")) { tested.push(JSON.parse(String(init?.body))[0].url); return Response.json(fx("lighthouse_403")); }
+      return base(url, init);
+    }) as typeof fetch;
+    const audit = await prisma.siteAudit.create({
+      data: { clientId, status: "completed", providerTaskId: "t-old", targetUrl: "https://galaxyparties.biz", maxPages: 500, pagesCrawled: 10, healthScore: 0, serverSoftware: "cloudflare", actualCost: 0.2, finishedAt: new Date("2026-11-25T10:00:00Z"), createdAt: new Date("2026-11-25T09:00:00Z"),
+        lighthouse: [{ url: "https://galaxyparties.biz/", performance: null, lcpMs: null, cls: null, tbtMs: null, error: "DataForSEO error 50301: Lighthouse encountered an error with the following code: ERRORED_DOCUMENT_REQUEST" }, { url: "https://galaxyparties.biz/party", performance: 70, lcpMs: 2000, cls: 0, tbtMs: 100 }] },
+    });
+    const r = await reanalyzeAudit(audit.id, { fetch: f, retryDelayMs: 0 });
+    expect(r.speedRetried).toBe(1);
+    expect(tested).toEqual(["https://galaxyparties.biz/", "https://galaxyparties.biz/"]); // the failed one only, retried once
+    const after = await prisma.siteAudit.findUniqueOrThrow({ where: { id: audit.id } });
+    const rows = after.lighthouse as { url: string; error?: string; performance: number | null }[];
+    expect(rows[0].error).toMatch(/refused the speed test \(HTTP 403\).*Cloudflare/);
+    expect(rows[1].performance).toBe(70);
+    expect(after.actualCost).toBe(0.2);
+    await prisma.siteAudit.delete({ where: { id: audit.id } });
+  });
+
+  it("stops a running crawl at DataForSEO and then collects what was crawled", async () => {
+    const { startAudit, stopAudit, pollActiveAudits } = await import("../jobs");
+    await prisma.siteAudit.updateMany({ where: { clientId, status: { in: ["queued", "crawling", "processing"] } }, data: { status: "failed" } });
+    const { f, calls } = sandboxReplay();
+    const started = await startAudit(clientId, "manual", { fetch: f, now: new Date("2026-11-23T05:30:00Z") });
+    expect(started.status).toBe("crawling");
+    const stopped = await stopAudit(clientId, { fetch: f, now: new Date("2026-11-23T05:31:00Z") });
+    expect(stopped.stopRequestedAt).not.toBeNull();
+    expect(calls.find((c) => c.path === "/on_page/force_stop")?.body).toEqual([{ id: started.providerTaskId }]);
+    await pollActiveAudits({ fetch: f, now: new Date("2026-11-23T05:32:00Z"), retryDelayMs: 0 });
+    const done = await prisma.siteAudit.findUniqueOrThrow({ where: { id: started.id } });
+    expect(done.status).toBe("completed");
+    expect(done.errorMessage).toMatch(/Stopped early by an administrator after 10 pages/);
   });
 
   it("skips a crawl over the monthly cap and records why", async () => {
@@ -415,9 +599,10 @@ describe.skipIf(!sandbox)("DataForSEO sandbox: full crawl flow", () => {
     expect(started.taskId).toMatch(/\w/);
     const p = await crawlProgress(secret, started.taskId);
     expect(p.finished).toBe(true); // the sandbox answers with a finished crawl
+    await expect(stopCrawl(secret, started.taskId)).resolves.toBeUndefined(); // force_stop accepted
     const { findings } = await collectCrawl(secret, started.taskId, { targetUrl: "https://dataforseo.com", maxPages: 50, domainChecks: p.domainChecks });
     expect(findings.pages).toBeGreaterThan(0);
-    const score = healthScore({ pages: findings.pages, errorPages: findings.errorPages, warningPages: findings.warningPages, noticePages: findings.noticePages });
+    const score = healthScore({ pages: findings.pages, issues: findings.issues });
     expect(score).toBeGreaterThanOrEqual(0);
     const lh = await runLighthouse(secret, ["https://dataforseo.com/"]);
     expect(lh.rows[0].performance).not.toBeNull();
