@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { PrismaClient } from "@prisma/client";
-import { analyseCrawl, ISSUES, pageIssueKeys, type DfsPage } from "@/lib/site-audit/issues";
+import { analyseCrawl, failedToLoad, ISSUES, pageIssueKeys, type DfsPage } from "@/lib/site-audit/issues";
 import { healthScore, issueCost, scoreBand } from "@/lib/site-audit/score";
 import { isSystemUrl, matchesIgnore, parseIgnorePatterns } from "@/lib/site-audit/urls";
 import { changed, diffIssues, summarizeDiff } from "@/lib/site-audit/diff";
@@ -230,6 +230,55 @@ describe("false positives (Galaxy Parties)", () => {
   });
 });
 
+describe("broken resources (Galaxy Parties crawl)", () => {
+  // Real on_page/resources records: the main stylesheet loads (200) but DataForSEO marks it broken for CSS parse warnings.
+  const RES: { url: string; status_code: number }[] = fx("galaxy_resources").tasks[0].result[0].items;
+  const main = RES.find((r) => r.url.endsWith("index-DYweEDFD.css"))!.url;
+  const missing = RES.find((r) => r.status_code === 404)!.url;
+  const site = () => {
+    const pages = Array.from({ length: 5 }, (_, i) => Object.assign(clean(), { url: `https://galaxyparties.biz/p${i}`, broken_resources: true }));
+    return { pages, brokenResources: RES.map((r) => ({ url: r.url, status: r.status_code })) };
+  };
+  it("counts only resources that failed to load, not ones with parse warnings", () => {
+    expect(failedToLoad(200)).toBe(false);
+    expect(failedToLoad(404)).toBe(true);
+    expect(failedToLoad(null)).toBe(true); // no response
+    const { pages, brokenResources } = site();
+    const f = analyseCrawl(pages, { brokenResources, resourcePages: { [missing]: ["https://galaxyparties.biz/p3"], [main]: pages.map((p) => p.url) }, resourcePageCounts: { [missing]: 1, [main]: 496 } }, "galaxyparties.biz");
+    const issue = f.issues.find((i) => i.key === "broken_resources")!;
+    expect(issue).toMatchObject({ count: 1, targets: [{ url: missing, status: 404, pages: 1 }] });
+    expect(f.errorPages).toBe(1);
+  });
+  it("leaves out resources on system paths even when they fail", () => {
+    const { pages } = site();
+    const f = analyseCrawl(pages, { brokenResources: [{ url: "https://galaxyparties.biz/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js", status: 403 }], resourcePages: {} }, "galaxyparties.biz");
+    expect(f.issues.find((i) => i.key === "broken_resources")).toBeUndefined();
+  });
+  it("lists broken link targets with the pages linking to them", () => {
+    const g = galaxyCrawl();
+    g.links.push({ link_from: "https://galaxyparties.biz/party-1", link_to: "https://galaxyparties.biz/gone", direction: "internal", is_broken: true }, { link_from: "https://galaxyparties.biz/party-2", link_to: "https://galaxyparties.biz/gone", direction: "internal", is_broken: true });
+    const f = analyseCrawl(g.pages, { links: g.links, linksComplete: true }, "galaxyparties.biz");
+    expect(f.issues.find((i) => i.key === "broken_internal_links")?.targets).toEqual([{ url: "https://galaxyparties.biz/gone", status: null, pages: 2 }]);
+  });
+  it("the engine looks up pages only for resources that failed to load, and counts them all", async () => {
+    const looked: string[] = [];
+    const base = sandboxReplay().f;
+    const f = (async (url: string | URL, init?: RequestInit) => {
+      const p = String(url).replace(/^https:\/\/[^/]+\/v3/, "");
+      if (p === "/on_page/resources") return Response.json(fx("galaxy_resources"));
+      if (p === "/on_page/pages_by_resource") {
+        const body = JSON.parse(String(init?.body))[0];
+        looked.push(body.url);
+        return Response.json({ status_code: 20000, status_message: "Ok.", tasks: [{ id: "x", status_code: 20000, status_message: "Ok.", cost: 0, result: [{ total_items_count: 1, items: [{ url: "https://dataforseo.com/" }] }] }] });
+      }
+      return base(url, init);
+    }) as typeof fetch;
+    const { findings } = await collectCrawl("login:pass", "t", { targetUrl: "https://dataforseo.com", maxPages: 50, domainChecks: null }, f);
+    expect(looked).toEqual([missing]);
+    expect(findings.issues.find((i) => i.key === "broken_resources")?.targets).toEqual([{ url: missing, status: 404, pages: 1 }]);
+  });
+});
+
 describe("Lighthouse failures", () => {
   it("explains a 403 from a site behind Cloudflare, retries once, and isn't charged", async () => {
     let calls = 0;
@@ -450,10 +499,13 @@ describe.skipIf(!hasDb)("site audit jobs (database, recorded sandbox responses)"
     const gone = (async () => Response.json({ status_code: 20000, status_message: "Ok.", tasks: [{ id: "x", status_code: 40400, status_message: "Not Found.", result: null }] })) as unknown as typeof fetch;
     const audit = await prisma.siteAudit.create({
       data: { clientId, status: "completed", providerTaskId: "expired", targetUrl: "https://galaxyparties.biz", maxPages: 500, pagesCrawled: 498, healthScore: 0, finishedAt: new Date("2026-11-25T10:00:00Z"), createdAt: new Date("2026-11-25T09:00:00Z"),
-        issues: { create: [{ issueKey: "broken_internal_links", severity: "error", category: "links", count: 498 }, { issueKey: "blocked_but_linked", severity: "error", category: "crawlability", count: 1000 }] } },
+        issues: { create: [{ issueKey: "broken_internal_links", severity: "error", category: "links", count: 498 }, { issueKey: "blocked_but_linked", severity: "error", category: "crawlability", count: 1000 }] },
+        errorPages: 498, pages: { create: [{ url: "https://galaxyparties.biz/a", issueKeys: ["broken_internal_links"] }, { url: "https://galaxyparties.biz/b", issueKeys: ["title_too_short"] }] } },
     });
     const r = await reanalyzeAudit(audit.id, { fetch: gone });
     expect(r).toEqual({ mode: "stored", before: 0, after: 86, speedRetried: 0 });
+    // Page counts re-derived from the stored pages with current severities.
+    expect(await prisma.siteAudit.findUniqueOrThrow({ where: { id: audit.id } })).toMatchObject({ errorPages: 1, warningPages: 1 });
     const issue = await prisma.siteAuditIssue.findFirstOrThrow({ where: { auditId: audit.id, issueKey: "blocked_but_linked" } });
     expect(issue.severity).toBe("warning"); // re-graded with the current catalogue
     await prisma.siteAudit.delete({ where: { id: audit.id } });

@@ -1,5 +1,5 @@
 import "server-only";
-import { analyseCrawl, type CrawlFindings, type DfsPage, type SiteInputs } from "@/lib/site-audit/issues";
+import { analyseCrawl, failedToLoad, type CrawlFindings, type DfsPage, type SiteInputs } from "@/lib/site-audit/issues";
 import { isExcludedUrl } from "@/lib/site-audit/urls";
 import {
   BALANCE_MESSAGE, DataForSeoError, forceStopOnPage, getLighthouse, getOnPageList, getOnPageSummary, isBalanceCode, postOnPageTask, type FetchLike,
@@ -156,29 +156,43 @@ export async function collectCrawl(secret: string, taskId: string, input: { targ
     }
     return { items: out, complete: false };
   }, { items: [] as Link[], complete: false });
-  // Broken resources, then which pages use the ones that aren't excluded.
+  // Resources DataForSEO marks broken, with their status. It also marks ones that loaded fine (HTTP 200)
+  // but have CSS/JS parse warnings; analyseCrawl counts only real load failures (failedToLoad).
   const brokenResources = await optional(async () => {
-    const out: { url: string }[] = [];
+    const out: { url: string; status: number | null }[] = [];
     for (let offset = 0; offset < MAX_BROKEN_LINKS; offset += PAGE_BATCH) {
       const r = await getOnPageList<{ url?: string; status_code?: number | null; checks?: { is_broken?: boolean | null } | null }>(secret, "resources", taskId, { limit: PAGE_BATCH, offset, filters: [["checks.is_broken", "=", true]] }, f);
       cost += r.cost;
       const items = r.result?.items ?? [];
       // The sandbox ignores filters: keep only broken ones here too.
-      out.push(...items.filter((x) => x.url && (x.checks?.is_broken === true || (x.status_code ?? 0) >= 400)).map((x) => ({ url: x.url! })));
+      out.push(...items.filter((x) => x.url && (x.checks?.is_broken === true || (x.status_code ?? 0) >= 400)).map((x) => ({ url: x.url!, status: x.status_code ?? null })));
       if (items.length < PAGE_BATCH) return out;
     }
     return undefined; // too many to judge: keep DataForSEO's per-page flag
-  }, undefined as { url: string }[] | undefined);
+  }, undefined as { url: string; status: number | null }[] | undefined);
+  // Which pages use each resource that really failed to load (and isn't excluded), and how many.
   const resourcePages: Record<string, string[]> = {};
-  const toLookUp = (brokenResources ?? []).filter((r) => !isExcludedUrl(r.url, input.ignore ?? []));
+  const resourcePageCounts: Record<string, number> = {};
+  const toLookUp = (brokenResources ?? []).filter((r) => failedToLoad(r.status) && !isExcludedUrl(r.url, input.ignore ?? []));
   if (toLookUp.length <= MAX_RESOURCE_LOOKUPS) {
     for (const res of toLookUp) {
-      const ps = await optional(async () => {
-        const r = await getOnPageList<{ url?: string }>(secret, "pages_by_resource", taskId, { limit: PAGE_BATCH, url: res.url }, f);
-        cost += r.cost;
-        return (r.result?.items ?? []).map((x) => x.url).filter((u): u is string => !!u);
-      }, null as string[] | null);
-      if (ps) resourcePages[res.url] = ps;
+      const found = await optional(async () => {
+        const urls: string[] = [];
+        let total = 0;
+        for (let offset = 0; offset < MAX_BROKEN_LINKS; offset += PAGE_BATCH) {
+          const r = await getOnPageList<{ url?: string }>(secret, "pages_by_resource", taskId, { limit: PAGE_BATCH, offset, url: res.url }, f);
+          cost += r.cost;
+          const items = r.result?.items ?? [];
+          total = Math.max(total, r.result?.total_items_count ?? 0);
+          urls.push(...items.map((x) => x.url).filter((u): u is string => !!u));
+          if (items.length < PAGE_BATCH) break;
+        }
+        return { urls, total: Math.max(total, urls.length) };
+      }, null as { urls: string[]; total: number } | null);
+      if (found) {
+        resourcePages[res.url] = found.urls;
+        resourcePageCounts[res.url] = found.total;
+      }
     }
   }
   const site: SiteInputs = {
@@ -189,6 +203,7 @@ export async function collectCrawl(secret: string, taskId: string, input: { targ
     linksComplete: links.complete,
     brokenResources,
     resourcePages,
+    resourcePageCounts,
   };
   return { findings: analyseCrawl(pages.slice(0, input.maxPages), site, hostOfTarget(input.targetUrl), { ignore: input.ignore }), cost };
 }

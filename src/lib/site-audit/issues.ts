@@ -55,11 +55,26 @@ export interface SiteInputs {
   links?: { link_from?: string; link_to?: string; direction?: string; is_broken?: boolean | null; page_to_status_code?: number | null }[];
   /** True when `links` holds every broken link of the crawl, so pages can be judged by them alone. */
   linksComplete?: boolean;
-  /** Broken resources (images, scripts, styles) from on_page/resources; undefined = not fetched. */
-  brokenResources?: { url: string }[];
+  /**
+   * Resources (images, scripts, styles) that failed to load, from on_page/resources;
+   * undefined = not fetched. Resources that loaded but have parse warnings aren't broken.
+   */
+  brokenResources?: { url: string; status?: number | null }[];
   /** Pages using each broken resource (on_page/pages_by_resource), for resources that aren't excluded. */
   resourcePages?: Record<string, string[]>;
+  /** How many pages use each broken resource (can exceed the pages listed). */
+  resourcePageCounts?: Record<string, number>;
 }
+
+/** A broken resource or link target, with its HTTP status and how many pages use or link to it. */
+export interface IssueTarget {
+  url: string;
+  status: number | null;
+  pages: number;
+}
+
+/** Load failed: an HTTP error, or no response at all. A 200 with CSS/JS parse warnings is not a failure. */
+export const failedToLoad = (status: number | null | undefined) => status === null || status === undefined || status === 0 || status >= 400;
 
 export interface IssueDef {
   key: string;
@@ -126,6 +141,7 @@ export const ISSUES: IssueDef[] = [
 export const ISSUE_BY_KEY: Record<string, IssueDef> = Object.fromEntries(ISSUES.map((d) => [d.key, d]));
 export const SEVERITY_WEIGHT: Record<Severity, number> = { error: 1, warning: 0.4, notice: 0.1 };
 const MAX_SAMPLES = 20;
+const MAX_TARGETS = 50;
 
 /** Issue keys a page has (page-scoped issues only). */
 export function pageIssueKeys(p: DfsPage): string[] {
@@ -139,6 +155,8 @@ export interface FoundIssue {
   /** Pages affected (site-wide checks: occurrences). */
   count: number;
   sampleUrls: string[];
+  /** Broken resources / link targets behind the issue, most-used first (up to 50). */
+  targets?: IssueTarget[];
 }
 
 export interface CrawlFindings {
@@ -196,8 +214,9 @@ export function analyseCrawl(pages: DfsPage[], site: SiteInputs, targetHost: str
   };
 
   // Broken resources: only ones that aren't excluded, on the pages that use them when known.
-  const realResources = site.brokenResources?.filter((r) => r.url && !excluded(r.url));
-  const resourcePages = new Set(Object.entries(site.resourcePages ?? {}).filter(([u]) => !excluded(u)).flatMap(([, ps]) => ps.map(keyOf)));
+  const realResources = site.brokenResources?.filter((r) => r.url && !excluded(r.url) && failedToLoad(r.status));
+  // Pages using a resource that really failed (never one that loaded with parse warnings).
+  const resourcePages = new Set((realResources ?? []).flatMap((r) => (site.resourcePages?.[r.url] ?? []).map(keyOf)));
   const pagesKnownForAll = !!realResources && realResources.every((r) => site.resourcePages?.[r.url]);
   const hasBrokenResource = (p: DfsPage) => {
     if (realResources && realResources.length === 0) return false;
@@ -231,15 +250,29 @@ export function analyseCrawl(pages: DfsPage[], site: SiteInputs, targetHost: str
   for (const n of site.nonIndexable ?? []) {
     if (n.url && sameSite(n.url) && !excluded(n.url) && blockedReasons.test(n.reason ?? "")) add("blocked_but_linked", n.url);
   }
-  // Samples for broken links: the broken targets themselves.
-  const brokenTargets = [...new Set([...realBrokenFrom.values()].flat())];
+  // Targets: each broken link target with the pages linking to it, each broken resource with the pages using it.
+  const linkPages = new Map<string, { pages: Set<string>; status: number | null }>();
+  for (const l of brokenLinks) {
+    if (excluded(l.link_to!)) continue;
+    const t = linkPages.get(l.link_to!) ?? { pages: new Set<string>(), status: l.page_to_status_code ?? null };
+    t.pages.add(keyOf(l.link_from!));
+    linkPages.set(l.link_to!, t);
+  }
+  const byUse = (a: IssueTarget, b: IssueTarget) => b.pages - a.pages || a.url.localeCompare(b.url);
+  const linkTargets: IssueTarget[] = [...linkPages].map(([url, t]) => ({ url, status: t.status, pages: t.pages.size })).sort(byUse).slice(0, MAX_TARGETS);
+  const resourceTargets: IssueTarget[] = (realResources ?? [])
+    .map((r) => ({ url: r.url, status: r.status ?? null, pages: site.resourcePageCounts?.[r.url] ?? site.resourcePages?.[r.url]?.length ?? 0 }))
+    .sort(byUse)
+    .slice(0, MAX_TARGETS);
+  const brokenTargets = linkTargets.map((t) => t.url);
   const issues: FoundIssue[] = [];
   for (const d of ISSUES) {
     const urls = byKey.get(d.key);
     if (!urls?.size) continue;
     const real = [...urls].filter(Boolean);
     const samples = d.key === "broken_internal_links" && brokenTargets.length ? brokenTargets : real;
-    issues.push({ key: d.key, severity: d.severity, category: d.category, count: d.scope === "site" ? Math.max(1, real.length) : urls.size, sampleUrls: samples.slice(0, MAX_SAMPLES) });
+    const targets = d.key === "broken_internal_links" ? linkTargets : d.key === "broken_resources" ? resourceTargets : [];
+    issues.push({ key: d.key, severity: d.severity, category: d.category, count: d.scope === "site" ? Math.max(1, real.length) : urls.size, sampleUrls: samples.slice(0, MAX_SAMPLES), ...(targets.length ? { targets } : {}) });
   }
   return { pages: html.length, issues, errorPages, warningPages, noticePages, pageRows };
 }

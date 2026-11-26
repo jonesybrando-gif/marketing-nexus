@@ -1,5 +1,5 @@
 import "server-only";
-import type { Prisma, SiteAudit } from "@prisma/client";
+import { Prisma, type SiteAudit } from "@prisma/client";
 import { prisma } from "../db";
 import { readSecret, markDataSourceNeedsReauth } from "../data-sources/credentials";
 import { agencyDataForSeoConnection } from "../data-sources/dataforseo/account";
@@ -176,7 +176,7 @@ export async function pruneAuditDetail(clientId: string): Promise<number> {
   const ids = old.map((a) => a.id);
   await prisma.$transaction([
     prisma.siteAuditPage.deleteMany({ where: { auditId: { in: ids } } }),
-    prisma.siteAuditIssue.updateMany({ where: { auditId: { in: ids } }, data: { sampleUrls: [] } }),
+    prisma.siteAuditIssue.updateMany({ where: { auditId: { in: ids } }, data: { sampleUrls: [], targets: Prisma.DbNull } }),
     prisma.siteAudit.updateMany({ where: { id: { in: ids } }, data: { detailPrunedAt: new Date() } }),
   ]);
   return ids.length;
@@ -206,7 +206,8 @@ export function crawlCharge(upfront: number, maxPages: number, pagesCrawled: num
 }
 
 /** Version of the analysis rules (exclusions, severities, score). Older audits can be re-analysed for free. */
-export const ANALYSIS_VERSION = 2;
+// 3: a resource counts as broken only if it failed to load (not for CSS/JS parse warnings); issues list their targets.
+export const ANALYSIS_VERSION = 3;
 
 const ignorePatternsFor = async (clientId: string) => (await prisma.siteAuditConfig.findUnique({ where: { clientId }, select: { ignorePatterns: true } }))?.ignorePatterns ?? [];
 
@@ -215,7 +216,7 @@ async function storeFindings(auditId: string, findings: CrawlFindings, data: Pri
   await prisma.$transaction([
     prisma.siteAuditIssue.deleteMany({ where: { auditId } }),
     prisma.siteAuditPage.deleteMany({ where: { auditId } }),
-    prisma.siteAuditIssue.createMany({ data: findings.issues.map((i) => ({ auditId, issueKey: i.key, severity: i.severity, category: i.category, count: i.count, sampleUrls: i.sampleUrls })) }),
+    prisma.siteAuditIssue.createMany({ data: findings.issues.map((i) => ({ auditId, issueKey: i.key, severity: i.severity, category: i.category, count: i.count, sampleUrls: i.sampleUrls, ...(i.targets?.length ? { targets: i.targets as unknown as Prisma.InputJsonValue } : {}) })) }),
     prisma.siteAuditPage.createMany({ data: findings.pageRows.slice(0, 5000).map((p) => ({ auditId, ...p })) }),
     prisma.siteAudit.update({
       where: { id: auditId },
@@ -287,12 +288,16 @@ export async function reanalyzeAudit(auditId: string, deps: JobDeps = {}): Promi
       // DataForSEO no longer has the crawl (or a transient error): fall back to the stored counts.
     }
   }
-  // Stored counts, current severities and formula.
+  // Stored counts, current severities and formula; page counts re-derived from the stored pages.
   const issues = audit.issues.filter((i) => ISSUE_BY_KEY[i.issueKey]).map((i) => ({ ...i, severity: ISSUE_BY_KEY[i.issueKey].severity }));
   const after = healthScore({ pages: audit.pagesCrawled ?? 0, issues: issues.map((i) => ({ key: i.issueKey, severity: i.severity, count: i.count })) });
+  const stored = await prisma.siteAuditPage.findMany({ where: { auditId: audit.id }, select: { issueKeys: true } });
+  const pagesWith = (sev: string) => stored.filter((p) => p.issueKeys.some((k) => ISSUE_BY_KEY[k]?.severity === sev)).length;
+  // Pages are only stored for the last 6 audits; without them the old counts stay.
+  const pageCounts = stored.length ? { errorPages: pagesWith("error"), warningPages: pagesWith("warning") } : {};
   await prisma.$transaction([
     ...issues.map((i) => prisma.siteAuditIssue.update({ where: { id: i.id }, data: { severity: i.severity } })),
-    prisma.siteAudit.update({ where: { id: audit.id }, data: { healthScore: after } }),
+    prisma.siteAudit.update({ where: { id: audit.id }, data: { healthScore: after, ...pageCounts } }),
   ]);
   await summarizeAudit(audit.id);
   return { mode: "stored", before, after, speedRetried };

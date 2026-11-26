@@ -1050,6 +1050,8 @@ model SiteAuditIssue {
   count      Int
   /// Up to 20 example URLs.
   sampleUrls Json?
+  /// Broken resources / link targets behind the issue: [{ url, status, pages }], most-used first.
+  targets    Json?
 
   @@unique([auditId, issueKey])
 }

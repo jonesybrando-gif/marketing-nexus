@@ -35,7 +35,10 @@ out everywhere: as crawled pages, as broken link or resource targets, and as
 blocked pages. Broken links are judged per page from DataForSEO's full list of
 broken links (so a page whose only "broken" link is `/cdn-cgi/l/email-protection`
 isn't counted), and broken resources from the resources list plus the pages
-using each one; when a list is too long to read, DataForSEO's own per-page flag
+using each one. A resource counts as broken only if it failed to load (HTTP 4xx/5xx
+or no response): DataForSEO also marks stylesheets and scripts that load fine but
+have parse warnings, which are not counted. Each issue stores its broken targets
+(`SiteAuditIssue.targets`: URL, status, pages using it), shown on the tab; when a list is too long to read, DataForSEO's own per-page flag
 is used instead. "Linked pages blocked from Google" is a warning: many sites
 noindex bookings, carts or filters on purpose.
 
